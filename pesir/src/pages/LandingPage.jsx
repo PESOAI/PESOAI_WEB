@@ -1,36 +1,38 @@
 import React from "react";
+// 1. I-import ang useLocation
+import { useLocation } from "react-router-dom"; 
 import Navbar from "../components/Navbar"; 
 import FeatureCard from "../components/FeatureCard"; 
 import Footer from "../components/Footer";
+import "../index.css";
 
 export default function LandingPage() {
+  // 2. Gamitin ang useLocation hook
+  const location = useLocation();                
+  
+  // 3. Basahin kung galing sa switch account ang user
+  const shouldOpenLogin = location.state?.fromSwitch; 
+
   return (
     <div className="font-sans text-slate-900 bg-white selection:bg-blue-100">
-      <Navbar />
+      {/* 4. Ipasa ang state sa Navbar */}
+      <Navbar openLogin={shouldOpenLogin} /> 
 
-      {/* --- HERO SECTION --- */}
       <section id="home" className="relative flex flex-col items-center justify-center px-8 md:px-24 py-32 lg:py-48 bg-slate-50 overflow-hidden text-center">
         
-        {/* Background Blur Effect */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-100 rounded-full blur-[150px] opacity-60"></div>
 
-        {/* --- CONTENT AREA (Centered) --- */}
         <div className="max-w-4xl z-10">
           <h2 className="text-6xl md:text-8xl font-extrabold mb-8 leading-[1.1] tracking-tight text-slate-900">
             Plan. Earn. Save. <br />
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-600">
               Optimize.
             </span> 
           </h2>
           <p className="text-xl md:text-2xl text-slate-600 mb-12 leading-relaxed max-w-2xl mx-auto">
             Take total control of your financial future. PESO AI combines smart expense tracking with powerful insights to help you manage your wealth anywhere, anytime.
           </p>
-          
-         
         </div>
-
- 
-
       </section>
 
       {/* --- FEATURES SECTION --- */}
