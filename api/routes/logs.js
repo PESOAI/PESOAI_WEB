@@ -3,7 +3,6 @@ import pool from '../db.js';
 
 const router = express.Router();
 
-// --- SAVE LOG ---
 router.post('/logs', async (req, res) => {
   const { type, user_name, message } = req.body;
   try {
@@ -18,7 +17,6 @@ router.post('/logs', async (req, res) => {
   }
 });
 
-// --- GET LOGS ---
 router.get('/logs', async (req, res) => {
   try {
     const result = await pool.query(
@@ -30,7 +28,6 @@ router.get('/logs', async (req, res) => {
   }
 });
 
-// --- CLEAR LOGS ---
 router.delete('/logs', async (req, res) => {
   try {
     await pool.query('DELETE FROM system_logs');

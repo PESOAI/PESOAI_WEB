@@ -1,10 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, Activity, UserCheck, UserX, Clock, AlertTriangle } from 'lucide-react';
+import { Users, Activity, Wallet, ArrowDownCircle, PieChart } from 'lucide-react';
 
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+
+  // Monitoring states based on the image
+  const [financials, setFinancials] = useState({
+    avgIncome: null, // NaN sa pic mo
+    avgExpenses: null,
+    avgSavings: null
+  });
 
   useEffect(() => {
     fetch('http://localhost:5000/api/users')
@@ -13,142 +19,120 @@ const AdminDashboard = () => {
         setUsers(Array.isArray(data) ? data : []);
         setLoading(false);
       })
-      .catch(err => {
-        console.error("Error fetching users:", err);
-        setUsers([]); 
-        setError("Could not connect to server.");
+      .catch(() => {
+        setUsers([]);
         setLoading(false);
       });
   }, []);
 
   const metrics = useMemo(() => {
     const total = users.length;
-    if (total === 0) return {
-      total: 0,
-      active: 0,
-      inactive: 0,
-      newToday: 0,
-      recentUsers: []
-    };
+    // Calculate activeness (example logic)
+    const activeCount = users.filter(u => u.account_status === 'Active').length;
+    const activeness = total > 0 ? ((activeCount / total) * 100).toFixed(1) : "0.0";
 
-    const active = users.filter(u => u.account_status === 'Active').length;
-    const inactive = users.filter(u => u.account_status !== 'Active').length;
-
-    const today = new Date().toLocaleDateString('en-PH');
-    const newToday = users.filter(u => {
-      const joined = new Date(u.join_date).toLocaleDateString('en-PH');
-      return joined === today;
-    }).length;
-
-    const recentUsers = [...users]
-      .sort((a, b) => new Date(b.join_date) - new Date(a.join_date))
-      .slice(0, 5);
-
-    return { total, active, inactive, newToday, recentUsers };
+    return { total, activeness };
   }, [users]);
 
-  if (loading) return (
-    <div className="p-8 flex items-center gap-3 text-slate-500">
-      <div className="w-4 h-4 rounded-full bg-green-500 animate-pulse"></div>
-      Loading System Metrics...
-    </div>
-  );
+  if (loading) return <div className="p-10 font-bold text-slate-400">Loading System...</div>;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-sans">
-      <div className="max-w-7xl mx-auto">
+    <div className="p-8 bg-[#F8FAFC] min-h-screen">
+      {/* SECTION TITLE */}
+      <div className="mb-6">
+        <h1 className="text-4xl font-black text-[#1E293B] mb-1">System Monitoring</h1>
+        <p className="text-slate-500 font-medium">Live analytics for user activity and financial health.</p>
+      </div>
 
-        {/* HEADER */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-black text-slate-900 tracking-tighter">System Monitoring</h1>
-          <p className="text-sm text-slate-500">Live analytics for registered users.</p>
-          {error && (
-            <div className="mt-3 flex items-center gap-2 text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2 text-xs font-bold w-fit">
-              <AlertTriangle size={14} /> {error}
-            </div>
-          )}
+      {/* KPI GRID - EXACTLY LIKE THE PHOTO */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-10">
+        <KPICard 
+          title="USER COUNT" 
+          value={metrics.total} 
+          icon={<Users size={24} />} 
+          iconColor="bg-[#6366F1]" 
+        />
+        <KPICard 
+          title="AVG. ACTIVENESS" 
+          value={`${metrics.activeness}%`} 
+          icon={<Activity size={24} />} 
+          iconColor="bg-[#22C55E]" 
+          isChartIcon
+        />
+        <KPICard 
+          title="AVG. INCOME" 
+          value={financials.avgIncome ?? "NaN"} 
+          icon={<Wallet size={24} />} 
+          iconColor="bg-[#3B82F6]" 
+          isCurrency
+        />
+        <KPICard 
+          title="AVG. EXPENSES" 
+          value={financials.avgExpenses ?? "NaN"} 
+          icon={<ArrowDownCircle size={24} />} 
+          iconColor="bg-[#EF4444]" 
+          isCurrency
+        />
+        <KPICard 
+          title="AVG. SAVINGS" 
+          value={financials.avgSavings ?? "NaN"} 
+          icon={<PieChart size={24} />} 
+          iconColor="bg-[#F59E0B]" 
+          isCurrency
+        />
+      </div>
+
+      {/* LOWER SECTION (Spending Categories & High Risk) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+           <h3 className="text-xl font-black mb-6">Top Spending Categories</h3>
+           {/* Dito papasok yung Donut Chart mo */}
+           <div className="flex items-center gap-10">
+              <div className="w-32 h-32 rounded-full border-[15px] border-orange-400"></div>
+              <div className="space-y-4">
+                <CategoryItem label="FOOD" color="bg-red-500" />
+                <CategoryItem label="TRANSPORT" color="bg-blue-500" />
+                <CategoryItem label="BILLS" color="bg-orange-500" />
+              </div>
+           </div>
         </div>
 
-        {/* KPI CARDS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <KPICard title="TOTAL USERS"    value={metrics.total}    icon={<Users size={22}/>}     iconBg="bg-[#5D5FEF]" />
-          <KPICard title="ACTIVE USERS"   value={metrics.active}   icon={<UserCheck size={22}/>} iconBg="bg-green-600" />
-          <KPICard title="INACTIVE USERS" value={metrics.inactive} icon={<UserX size={22}/>}     iconBg="bg-red-500"   />
-          <KPICard title="NEW TODAY"       value={metrics.newToday} icon={<Activity size={22}/>}  iconBg="bg-blue-600"  />
+        <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col items-center justify-center text-slate-400">
+           <div className="flex items-center gap-2 mb-2 font-bold text-slate-900 self-start">
+              <span className="text-red-500">⚠️</span> High-Risk Users
+           </div>
+           <p className="mt-10">No users at risk found.</p>
         </div>
-
-        {/* RECENT USERS TABLE */}
-        <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
-          <div className="p-8 border-b border-slate-50">
-            <div className="flex items-center gap-3">
-              <Clock size={18} className="text-slate-400" />
-              <h3 className="text-lg font-black text-slate-900">Recently Registered Users</h3>
-            </div>
-          </div>
-
-          {metrics.recentUsers.length === 0 ? (
-            <div className="text-center py-16 text-slate-400">
-              <Users size={32} className="mx-auto mb-3 opacity-30" />
-              <p className="text-sm font-bold">No users registered yet.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-50">
-                    <th className="text-left px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name</th>
-                    <th className="text-left px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Email</th>
-                    <th className="text-left px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</th>
-                    <th className="text-left px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
-                    <th className="text-left px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Join Date</th>
-                    <th className="text-left px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Last Active</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metrics.recentUsers.map((user, idx) => (
-                    <tr key={user.user_id || idx} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                      <td className="px-8 py-4 text-sm font-bold text-slate-900">{user.full_name}</td>
-                      <td className="px-8 py-4 text-sm text-slate-500">{user.email}</td>
-                      <td className="px-8 py-4 text-sm text-slate-500">{user.phone_number || '—'}</td>
-                      <td className="px-8 py-4">
-                        <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
-                          user.account_status === 'Active'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-red-100 text-red-600'
-                        }`}>
-                          {user.account_status}
-                        </span>
-                      </td>
-                      <td className="px-8 py-4 text-xs text-slate-400 font-medium">
-                        {new Date(user.join_date).toLocaleDateString('en-PH', {
-                          year: 'numeric', month: 'short', day: 'numeric'
-                        })}
-                      </td>
-                      <td className="px-8 py-4 text-xs text-slate-400 font-medium">
-                        {user.last_active_at ? new Date(user.last_active_at).toLocaleDateString('en-PH', {
-                          year: 'numeric', month: 'short', day: 'numeric'
-                        }) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
       </div>
     </div>
   );
 };
 
-const KPICard = ({ title, value, icon, iconBg }) => (
-  <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex flex-col justify-between h-44 relative overflow-hidden hover:shadow-md transition-all">
+/* UPDATED KPI CARD COMPONENT */
+const KPICard = ({ title, value, icon, iconColor, isCurrency }) => (
+  <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-50 flex flex-col justify-between min-h-[180px]">
     <div className="flex justify-between items-start">
-      <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">{title}</span>
-      <div className={`${iconBg} p-3 rounded-2xl text-white`}>{icon}</div>
+      <span className="text-[10px] font-black text-slate-400 tracking-widest leading-tight w-20">
+        {title}
+      </span>
+      <div className={`${iconColor} p-2.5 rounded-2xl text-white shadow-lg`}>
+        {icon}
+      </div>
     </div>
-    <div className="text-[40px] font-black text-slate-900 tracking-tight leading-none">{value}</div>
+    <div className="text-4xl font-black text-slate-900 flex items-baseline">
+      {isCurrency && <span className="text-3xl mr-1">₱</span>}
+      {value}
+    </div>
+  </div>
+);
+
+const CategoryItem = ({ label, color }) => (
+  <div>
+    <div className="flex items-center gap-2">
+      <div className={`w-3 h-3 rounded-full ${color}`}></div>
+      <span className="text-[10px] font-black text-slate-400">{label}</span>
+    </div>
+    <div className="font-black text-lg ml-5">₱NaN</div>
   </div>
 );
 

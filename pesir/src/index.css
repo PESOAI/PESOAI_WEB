@@ -28,7 +28,6 @@ html {
   scroll-behavior: smooth;
 }
 
-/* Custom Scrollbar (Optional - para mas modern tignan) */
 ::-webkit-scrollbar {
   width: 10px;
 }

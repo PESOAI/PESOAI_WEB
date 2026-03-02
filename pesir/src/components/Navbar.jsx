@@ -59,8 +59,7 @@ export default function Navbar({ openLogin }) {
         throw new Error(data.message);
       }
     } catch (err) {
-      // ✅ AYOS NA — Tinanggal ang duplicate /api/logs POST dito
-      // Ang backend /api/login ay nag-i-insert na ng FAILED log sa DB
+      
       setError(true);
       setTimeout(() => setError(false), 1000);
     } finally {

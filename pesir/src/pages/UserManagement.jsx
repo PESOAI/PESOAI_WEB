@@ -11,25 +11,20 @@ const UserManagement = () => {
 
   useEffect(() => {
     fetchUsers();
-    searchInputRef.current?.focus(); // Focus search on load
-
+    searchInputRef.current?.focus(); 
     const handleKeyDown = (e) => {
-      // ALT + S: Focus Search
       if (e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
-      // ALT + A: Filter Active
       if (e.altKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         setFilterStatus("Active");
       }
-      // ALT + I: Filter Inactive
       if (e.altKey && e.key.toLowerCase() === 'i') {
         e.preventDefault();
         setFilterStatus("Inactive");
       }
-      // ESC: Reset all filters
       if (e.key === 'Escape') {
         setSearchTerm("");
         setFilterStatus("All");
@@ -86,7 +81,6 @@ const UserManagement = () => {
     }
   };
 
-  // --- PRINT REPORT HANDLER ---
   const handlePrintReport = () => {
     const reportWindow = window.open('', '_blank');
     const reportDate = new Date().toLocaleDateString();
@@ -161,7 +155,6 @@ const UserManagement = () => {
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen font-sans">
-      {/* HEADER SECTION */}
       <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 tracking-tight">User Access Control</h1>
@@ -178,7 +171,6 @@ const UserManagement = () => {
         </div>
         
         <div className="flex gap-2">
-          {/* SEARCH INPUT */}
           <div className="relative w-full md:w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input 
@@ -191,7 +183,6 @@ const UserManagement = () => {
             />
           </div>
 
-          {/* PRINT REPORT BUTTON */}
           <button 
             onClick={handlePrintReport}
             className="flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-bold text-slate-700 hover:bg-slate-100 transition-all"
@@ -201,7 +192,6 @@ const UserManagement = () => {
         </div>
       </div>
 
-      {/* TABLE SECTION */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">

@@ -1,5 +1,4 @@
 import React from "react";
-// 1. I-import ang useLocation
 import { useLocation } from "react-router-dom"; 
 import Navbar from "../components/Navbar"; 
 import FeatureCard from "../components/FeatureCard"; 
@@ -7,15 +6,12 @@ import Footer from "../components/Footer";
 import "../index.css";
 
 export default function LandingPage() {
-  // 2. Gamitin ang useLocation hook
   const location = useLocation();                
   
-  // 3. Basahin kung galing sa switch account ang user
   const shouldOpenLogin = location.state?.fromSwitch; 
 
   return (
     <div className="font-sans text-slate-900 bg-white selection:bg-blue-100">
-      {/* 4. Ipasa ang state sa Navbar */}
       <Navbar openLogin={shouldOpenLogin} /> 
 
       <section id="home" className="relative flex flex-col items-center justify-center px-8 md:px-24 py-32 lg:py-48 bg-slate-50 overflow-hidden text-center">
@@ -35,7 +31,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* --- FEATURES SECTION --- */}
       <section id="features" className="px-8 md:px-24 py-24 bg-white">
         <div className="text-center mb-20">
           <h3 className="text-blue-600 font-bold uppercase tracking-[0.25em] text-xs mb-4">Why PESO AI</h3>
