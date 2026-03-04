@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Users, Activity, Wallet, ArrowDownCircle, PieChart } from 'lucide-react';
-
+// AdminDashboard component that displays system monitoring metrics such as user count, activeness, average income, expenses, and savings, along with sections for top spending categories and high-risk users, using data fetched from the server and styled with Tailwind CSS
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -11,7 +11,7 @@ const AdminDashboard = () => {
     avgExpenses: null,
     avgSavings: null
   });
-
+// Fetch user data from the server when the component mounts, and handle loading state and potential errors by setting the users state to an empty array if the fetch fails
   useEffect(() => {
     fetch('http://localhost:5000/api/users')
       .then(res => res.json())
@@ -24,7 +24,7 @@ const AdminDashboard = () => {
         setLoading(false);
       });
   }, []);
-
+// Use useMemo to calculate the total user count and average activeness percentage based on the users data, ensuring that these calculations are only performed when the users state changes for performance optimization
   const metrics = useMemo(() => {
     const total = users.length;
     // Calculate activeness (example logic)

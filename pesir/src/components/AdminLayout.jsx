@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import {  LayoutDashboard,  Users,  LogOut,  ShieldCheck, ChevronDown, ShieldAlert, X, ArrowLeft, UserPlus, History, PlusCircle} from 'lucide-react';
-
+// AdminLayout component that serves as the main layout for the admin dashboard, including sidebar navigation, header, and modals for settings and logs
 const AdminLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -15,10 +15,10 @@ const AdminLayout = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const hasFetchedLogs = useRef(false);
-
+// Get the current logged-in user from localStorage to determine access level and display user info in the header
   const currentUser = JSON.parse(localStorage.getItem('currentUser')) || { name: 'Admin', role: 'System Access' };
   const isMainAdmin = currentUser.role === 'Main Admin';
-
+// Fetch system logs when the settings modal is opened for the first time, and reset the flag when the modal is closed
   useEffect(() => {
     if (showSettingsModal && !hasFetchedLogs.current) {
       hasFetchedLogs.current = true;
@@ -28,21 +28,21 @@ const AdminLayout = () => {
         .catch(() => setSystemLogs([]));
     }
 
-    // Reset ang flag kapag nagsara ang modal
+    // Reset ang flag kapag nagsara ang modal 
     if (!showSettingsModal) {
       hasFetchedLogs.current = false;
     }
   }, [showSettingsModal]);
+  // Define the menu items for the sidebar navigation, with conditional rendering based on the user's role
+    const menuItems = [
+      { name: 'Analytics Dashboard', path: '/admin', icon: <LayoutDashboard size={18} />, public: true },
+      { name: 'User Management', path: '/admin/users', icon: <Users size={18} />, public: false },
+    ];
 
-  const menuItems = [
-    { name: 'Analytics Dashboard', path: '/admin', icon: <LayoutDashboard size={18} />, public: true },
-    { name: 'User Management', path: '/admin/users', icon: <Users size={18} />, public: false },
-  ];
-
-  if (location.pathname === '/admin/users' && !isMainAdmin) {
-    return <Navigate to="/admin" replace />;
-  }
-
+    if (location.pathname === '/admin/users' && !isMainAdmin) {
+      return <Navigate to="/admin" replace />;
+    }
+// Handle logout by clearing user data and redirecting to the login page, with a confirmation prompt
   const handleLogout = () => {
     if (window.confirm("Confirm system logout?")) {
       localStorage.setItem('lastLogout', new Date().toLocaleString());
@@ -50,7 +50,7 @@ const AdminLayout = () => {
       navigate('/');
     }
   };
-
+// Handle account switching by clearing the current user session and redirecting to the login page, with a confirmation prompt
   const handleSwitchAccount = () => {
     if (window.confirm("Switch account?")) {
       sessionStorage.removeItem('currentUser'); 
@@ -59,7 +59,7 @@ const AdminLayout = () => {
   };
 
   const isLoggingRef = useRef(false);
-
+// Function to post a log entry to the server, with a ref to prevent multiple rapid calls and ensure logs are not duplicated
   const postLog = async (type, user_name, message) => {
     if (isLoggingRef.current) return; // Prevent double call
     isLoggingRef.current = true;
@@ -75,12 +75,12 @@ const AdminLayout = () => {
       setTimeout(() => { isLoggingRef.current = false; }, 1000);
     }
   };
-
+// Handle adding a new staff admin by sending a POST request to the server, updating the logs, and refreshing the log list in the UI, with error handling and user feedback messages
   const handleAddAdmin = async (e) => {
     e.preventDefault();
     setAdminMessage({ text: '', type: '' });
     setIsSubmitting(true);
-
+// Validate input fields before sending the request
     try {
       const response = await fetch('http://localhost:5000/api/admins', {
         method: 'POST',
@@ -93,8 +93,8 @@ const AdminLayout = () => {
         })
       });
 
-      const data = await response.json();
-
+      const data = await response.json(); 
+// If the response is successful, show a success message, reset the form, post a log entry for the new admin creation, and refresh the system logs in the UI. If there's an error, show an error message.
       if (response.ok) {
         setAdminMessage({ text: `✅ Staff Admin "${newAdmin.username}" created!`, type: 'success' });
         setNewAdmin({ username: '', password: '' });
@@ -114,18 +114,18 @@ const AdminLayout = () => {
     }
   };
 
-  // --- CLEAR LOGS FROM DB ---
-  const handleClearLogs = async () => {
-    if (!window.confirm("Clear all security logs?")) return;
-    await fetch('http://localhost:5000/api/logs', { method: 'DELETE' });
-    setSystemLogs([]);
-  };
+    // --- CLEAR LOGS FROM DB ---
+    const handleClearLogs = async () => {
+      if (!window.confirm("Clear all security logs?")) return;
+      await fetch('http://localhost:5000/api/logs', { method: 'DELETE' });
+      setSystemLogs([]);
+    };
 
-  const getHeaderTitle = () => {
-    if (location.pathname === '/admin') return "Financial Overview";
-    if (location.pathname === '/admin/users') return "Client Database";
-    return "Admin Control Center";
-  };
+    const getHeaderTitle = () => {
+      if (location.pathname === '/admin') return "Financial Overview";
+      if (location.pathname === '/admin/users') return "Client Database";
+      return "Admin Control Center";
+    };
 
   const lastLogin = localStorage.getItem('lastLogin') || 'No data';
 
@@ -381,7 +381,7 @@ const AdminLayout = () => {
               </div>
             )}
           </div>
-        </div>  
+        </div> 
       )}
     </div>
   );

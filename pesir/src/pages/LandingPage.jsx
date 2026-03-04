@@ -4,7 +4,7 @@ import Navbar from "../components/Navbar";
 import FeatureCard from "../components/FeatureCard"; 
 import Footer from "../components/Footer";
 import "../index.css";
-
+// LandingPage component that serves as the main entry point for the application, featuring a hero section with a headline and description, a features section showcasing key benefits of the product, and a footer. It also includes logic to conditionally open the admin login modal based on navigation state.
 export default function LandingPage() {
   const location = useLocation();                
   

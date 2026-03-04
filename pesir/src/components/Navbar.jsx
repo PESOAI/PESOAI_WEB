@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, X, Lock, ArrowRight } from "lucide-react";
-
+// Navbar component that includes a hidden admin login modal triggered by tapping the logo 5 times, with state management for login credentials, error handling, and success feedback
 export default function Navbar({ openLogin }) { 
   const navigate = useNavigate();
   const [tapCount, setTapCount] = useState(0);
@@ -12,12 +12,12 @@ export default function Navbar({ openLogin }) {
   const [isSuccess, setIsSuccess] = useState(false);
 
   const isLoggingIn = useRef(false);
-
+// Effect to show the admin login modal if the openLogin prop is true, allowing external control of the modal visibility (e.g., from a parent component or route)
   useEffect(() => {
     setShowAdminModal(openLogin || false);
   }, [openLogin]);
 
-  useEffect(() => {
+  useEffect(() => { 
     const timer = setTimeout(() => setTapCount(0), 2000);
     return () => clearTimeout(timer);
   }, [tapCount]);
@@ -25,12 +25,12 @@ export default function Navbar({ openLogin }) {
   const handleLogoTap = () => {
     const nextCount = tapCount + 1;
     setTapCount(nextCount);
-    if (nextCount === 5) {
+    if (nextCount === 5) { // dito yung when u click the logo 5 times, it will open the admin login modal
       setShowAdminModal(true);
       setTapCount(0);
     }
   };
-
+// Function to handle admin login by sending a POST request to the server with the entered credentials, managing loading state to prevent multiple submissions, and providing user feedback based on the response (success or error)
   const handleLogin = async () => {
     if (isLoggingIn.current) return;
     isLoggingIn.current = true;
@@ -44,7 +44,7 @@ export default function Navbar({ openLogin }) {
 
       const data = await response.json();
 
-      if (response.ok) {
+      if (response.ok) {  
       
         setIsSuccess(true);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
@@ -66,7 +66,7 @@ export default function Navbar({ openLogin }) {
       setTimeout(() => { isLoggingIn.current = false; }, 1500);
     }
   };
-
+// Function to handle the "Enter" key press in the login form, allowing users to submit the form by pressing "Enter" instead of clicking the login button
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();

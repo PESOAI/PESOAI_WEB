@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MapPin, Mail, Clock, Calendar, CheckCircle, XCircle, Keyboard, FileText } from 'lucide-react'; // <--- Nagdagdag ng FileText icon
+import { Search, MapPin, Mail, Clock, Calendar, CheckCircle, XCircle, Keyboard, FileText } from 'lucide-react'; 
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -8,7 +8,7 @@ const UserManagement = () => {
   const [loading, setLoading] = useState(true);
   
   const searchInputRef = useRef(null);
-
+// Effect to fetch users from the server when the component mounts, set up keyboard shortcuts for search and status filtering, and clean up the event listener on unmount
   useEffect(() => {
     fetchUsers();
     searchInputRef.current?.focus(); 
@@ -34,7 +34,7 @@ const UserManagement = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
+// Function to fetch users from the server, update the users state with the fetched data, and handle loading state and potential errors by logging them and setting loading to false
   const fetchUsers = async () => {
     try {
       const response = await fetch('http://localhost:5000/api/users');
@@ -46,7 +46,7 @@ const UserManagement = () => {
       setLoading(false);
     }
   };
-
+// Function to format a date string into a more readable format, returning "Never" if the date string is falsy, and otherwise formatting it to include the month, day, year, and time in a 12-hour format
   const formatDate = (dateString) => {
     if (!dateString) return 'Never';
     const date = new Date(dateString);
@@ -55,7 +55,7 @@ const UserManagement = () => {
       hour: '2-digit', minute: '2-digit', hour12: true
     });
   };
-
+// Function to handle changing a user's account status by sending a PATCH request to the server with the new status, and updating the users state accordingly if the request is successful. It also includes a confirmation dialog to prevent accidental changes.
   const handleStatusChange = async (userId, currentStatus, userName) => {
     const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
     const actionText = newStatus === 'Active' ? 'ENABLE' : 'DISABLE';
@@ -80,7 +80,6 @@ const UserManagement = () => {
       }
     }
   };
-
   const handlePrintReport = () => {
     const reportWindow = window.open('', '_blank');
     const reportDate = new Date().toLocaleDateString();
@@ -92,7 +91,7 @@ const UserManagement = () => {
           <style>
             body { font-family: sans-serif; padding: 20px; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }  
             th { background-color: #f2f2f2; }
             h1 { color: #333; }
             .status-active { color: green; font-weight: bold; }
@@ -160,9 +159,11 @@ const UserManagement = () => {
           <h1 className="text-3xl font-bold text-slate-800 tracking-tight">User Access Control</h1>
           <div className="flex items-center gap-3 mt-2">
             <span className="flex items-center gap-1.5 px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-[10px] font-bold uppercase tracking-wider">
-              <Keyboard size={12} /> Admin Mode
+              <Keyboard size={12} /> Demo hotkey's Mode
             </span>
             <span className="text-[10px] text-slate-400 font-medium">
+                            <kbd className="bg-white border px-1 rounded shadow-sm">Esc</kbd> All | 
+
               <kbd className="bg-white border px-1 rounded shadow-sm">Alt+S</kbd> Search | 
               <kbd className="bg-white border px-1 ml-1 rounded shadow-sm">Alt+A</kbd> Active | 
               <kbd className="bg-white border px-1 ml-1 rounded shadow-sm">Alt+I</kbd> Inactive
