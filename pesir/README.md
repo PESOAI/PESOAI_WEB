@@ -34,10 +34,50 @@ PORT=5000
 
 # Database Settings
 DB_PORT=5000
-DB_PASSWORD=hanz1827
-DB_URL=postgresql://postgres:hanz1827@localhost:5432/webschema
+DB_PASSWORD=
+DB_URL=
+
+
+-- 1. Locations Table (Create first as it is a reference)
+CREATE TABLE public.locations (
+    location_id SERIAL PRIMARY KEY,
+    city VARCHAR(100) NOT NULL,
+    country VARCHAR(100) NOT NULL
+);
+
+-- 2. Admins Table
+CREATE TABLE public.admins (
+    admin_id SERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Users Table
+CREATE TABLE public.users (
+    user_id SERIAL PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    join_date DATE NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    phone_number VARCHAR(20),
+    location_id INTEGER REFERENCES public.locations(location_id),
+    account_status VARCHAR(20),
+    last_active_at TIMESTAMP WITH TIME ZONE
+);
+
+-- 4. System Logs Table
+CREATE TABLE public.system_logs (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(20),
+    timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    user_name VARCHAR(255),
+    message TEXT,
+    ip_address VARCHAR(45)
+);
 2. Backend Installation
 Open your terminal and run the following:
+
 
 Bash
 cd api
