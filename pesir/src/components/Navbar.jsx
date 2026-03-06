@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, X, Lock, ArrowRight } from "lucide-react";
-// Navbar component that includes a hidden admin login modal triggered by tapping the logo 5 times, with state management for login credentials, error handling, and success feedback
+
 export default function Navbar({ openLogin }) { 
   const navigate = useNavigate();
   const [tapCount, setTapCount] = useState(0);
@@ -12,7 +12,7 @@ export default function Navbar({ openLogin }) {
   const [isSuccess, setIsSuccess] = useState(false);
 
   const isLoggingIn = useRef(false);
-// Effect to show the admin login modal if the openLogin prop is true, allowing external control of the modal visibility (e.g., from a parent component or route)
+
   useEffect(() => {
     setShowAdminModal(openLogin || false);
   }, [openLogin]);
@@ -25,12 +25,12 @@ export default function Navbar({ openLogin }) {
   const handleLogoTap = () => {
     const nextCount = tapCount + 1;
     setTapCount(nextCount);
-    if (nextCount === 5) { // dito yung when u click the logo 5 times, it will open the admin login modal
+    if (nextCount === 5) { 
       setShowAdminModal(true);
       setTapCount(0);
     }
   };
-// Function to handle admin login by sending a POST request to the server with the entered credentials, managing loading state to prevent multiple submissions, and providing user feedback based on the response (success or error)
+
   const handleLogin = async () => {
     if (isLoggingIn.current) return;
     isLoggingIn.current = true;
@@ -44,9 +44,11 @@ export default function Navbar({ openLogin }) {
 
       const data = await response.json();
 
-      if (response.ok) {  
-      
+      if (response.ok) {
         setIsSuccess(true);
+
+        // ✅ Save token + user to localStorage
+        localStorage.setItem('token', data.token);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         localStorage.setItem('lastLogin', new Date().toLocaleString());
 
@@ -59,14 +61,13 @@ export default function Navbar({ openLogin }) {
         throw new Error(data.message);
       }
     } catch (err) {
-      
       setError(true);
       setTimeout(() => setError(false), 1000);
     } finally {
       setTimeout(() => { isLoggingIn.current = false; }, 1500);
     }
   };
-// Function to handle the "Enter" key press in the login form, allowing users to submit the form by pressing "Enter" instead of clicking the login button
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -82,13 +83,13 @@ export default function Navbar({ openLogin }) {
           className="flex items-center gap-3 cursor-pointer group select-none relative"
         >
           <div className="relative">
-            <div className="w-11 h-11 bg-gradient-to-br from-green-600 to-green-800 rounded-full flex items-center justify-center shadow-lg shadow-blue-200 group-active:scale-90 transition-all duration-300 border-2 border-white/20">
+            <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-blue-800 rounded-full flex items-center justify-center shadow-lg shadow-blue-200 group-active:scale-90 transition-all duration-300 border-2 border-white/20">
               <span className="text-white text-xl font-black italic">₱</span>
             </div>
           </div>
           <div className="flex flex-col -space-y-1">
             <h1 className="text-xl font-black tracking-tight text-slate-900 leading-none">
-              PESO<span className="text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-green-600">AI</span>
+              PESO<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-blue-600">AI</span>
             </h1>
             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em]">Financial Intelligence</span>
           </div>
@@ -99,10 +100,10 @@ export default function Navbar({ openLogin }) {
             <a 
               key={item}
               href={`#${item.toLowerCase()}`} 
-              className="text-sm font-bold text-slate-500 hover:text-green-600 transition-all relative group"
+              className="text-sm font-bold text-slate-500 hover:text-blue-600 transition-all relative group"
             >
               {item}
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-green-600 transition-all group-hover:w-full"></span>
+              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
             </a>
           ))}
         </nav>

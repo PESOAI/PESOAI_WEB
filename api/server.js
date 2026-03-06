@@ -5,7 +5,6 @@ import 'dotenv/config';
 import authRoutes from './routes/auth.js';
 import logRoutes from './routes/logs.js';
 import userRoutes from './routes/users.js';
-
 const app = express();
 
 app.use(cors());

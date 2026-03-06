@@ -50,3 +50,10 @@ html {
   justify-content: center;
 }
 
+.Footer {
+  background-color: black;
+  align-items: center;
+  padding: 20px;
+  color: #f1f5f9;
+  margin-top: 250%;
+}
