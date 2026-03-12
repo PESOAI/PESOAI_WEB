@@ -1,44 +1,66 @@
-// src/App.jsx – PESO AI (JWT Protected Routes)
+// src/App.jsx – PESO AI (JWT Protected Routes) - FIXED
+
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 import LandingPage from "./pages/LandingPage";
-import AdminLayout from "./components/AdminLayout";
+import AdminLayout from "./layouts/AdminLayout";
 import AdminDashboard from "./pages/AdminDashboard";
 import UserManagement from "./pages/UserManagement";
 
 // ─────────────────────────────────────────────────────────────
-// ProtectedRoute: verifies JWT token with backend before allowing access
+// Helper: check if JWT token is expired (without backend call)
+// ─────────────────────────────────────────────────────────────
+const isTokenExpired = (token) => {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp * 1000 < Date.now();
+  } catch {
+    return true;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// ProtectedRoute
 // ─────────────────────────────────────────────────────────────
 const ProtectedRoute = ({ children }) => {
-  const [status, setStatus] = useState('checking'); // 'checking' | 'valid' | 'invalid'
+  const [status, setStatus] = useState('checking');
 
   useEffect(() => {
     const verify = async () => {
       const token = localStorage.getItem('token');
-      if (!token) { 
-        setStatus('invalid'); 
-        return; 
+
+      if (!token) {
+        setStatus('invalid');
+        return;
       }
 
+      if (isTokenExpired(token)) {
+        console.warn('[AUTH] Token expired — clearing session');
+        localStorage.removeItem('token');
+        localStorage.removeItem('currentUser');
+        setStatus('invalid');
+        return;
+      }
+
+      setStatus('valid');
+
       try {
-        const res = await fetch('http://localhost:5000/api/verify', {
+        const res = await fetch('http://localhost:5000/api/auth/verify', {
           headers: { Authorization: `Bearer ${token}` }
         });
-        
-        if (res.ok) {
-          setStatus('valid');
-        } else {
-          // Token is expired or tampered with
+
+        if (!res.ok) {
+          console.warn('[AUTH] Backend rejected token — logging out');
           localStorage.removeItem('token');
           localStorage.removeItem('currentUser');
           setStatus('invalid');
         }
       } catch (error) {
-        console.error("Auth verification failed:", error);
-        setStatus('invalid');
+        console.warn('[AUTH] Backend unreachable — trusting local token:', error.message);
       }
     };
+
     verify();
   }, []);
 
@@ -53,7 +75,6 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  // Kung invalid ang status, ibabalik sa Landing Page (Login)
   return status === 'valid' ? children : <Navigate to="/" replace />;
 };
 
@@ -62,25 +83,20 @@ function App() {
   return (
     <Router>
       <Routes>
-        {/* Public Route */}
         <Route path="/" element={<LandingPage />} />
 
-        {/* Protected Admin Routes */}
-        <Route 
-          path="/admin" 
+        <Route
+          path="/admin"
           element={
             <ProtectedRoute>
               <AdminLayout />
             </ProtectedRoute>
           }
         >
-          {/* Ang index element ay lalabas sa /admin path */}
           <Route index element={<AdminDashboard />} />
-          {/* Lalabas ito sa /admin/users path */}
           <Route path="users" element={<UserManagement />} />
         </Route>
 
-        {/* Catch all — redirect to home if route doesn't exist */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

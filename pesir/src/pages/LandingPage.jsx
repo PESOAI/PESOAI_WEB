@@ -90,8 +90,8 @@ export default function LandingPage() {
             whileTap={{ scale: 0.95 }}
           >
             <a href="#features" className="bg-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:bg-blue-700 transition-colors">
-              Get Started Free
-            </a>
+              Explore Features
+              </a>
           </motion.div>
         </motion.div>
       </section>
