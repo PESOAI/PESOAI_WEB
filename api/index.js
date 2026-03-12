@@ -1,18 +1,22 @@
-import pool from './db.js';
-import seedAdmins from './seed.js';
+// api/index.js  –  PESO AI  (server entry point)
+import 'dotenv/config';
 import app from './server.js';
+import { initSchema } from './db.js'; // ← was ../db.js
+import seedAdmins from './seed.js';
 
 const PORT = process.env.PORT || 5000;
-//  Connect to the database and start the server
-pool.connect(async (err) => {
-  if (err) {
-    console.error('❌ Database connection error:', err.stack);
-  } else {
-    console.log('✅ Connected to PostgreSQL');
-    await seedAdmins();
-    app.listen(PORT, () => {
-      console.log(`🚀 Server → http://localhost:${PORT}`);
-      console.log('─────────────────────────────────────');
-    });
-  }
+
+async function start() {
+  await initSchema();
+  await seedAdmins();
+
+  app.listen(PORT, () => {
+    console.log(`🚀  PESO AI API running → http://localhost:${PORT}`);
+    console.log('    Routes: /api/auth | /api/logs | /api/users | /api/admin/*');
+  });
+}
+
+start().catch(err => {
+  console.error('❌  Failed to start server:', err);
+  process.exit(1);
 });
