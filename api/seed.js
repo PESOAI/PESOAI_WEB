@@ -1,4 +1,3 @@
-// api/seed.js  –  PESO AI
 import bcrypt from 'bcrypt';
 import pool from './db.js';
 

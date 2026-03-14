@@ -1,4 +1,3 @@
-// api/index.js  –  PESO AI  (server entry point)
 import 'dotenv/config';
 import app from './server.js';
 import { initSchema } from './db.js'; // ← was ../db.js

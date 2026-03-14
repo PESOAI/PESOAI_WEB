@@ -1,4 +1,3 @@
-// api/routes/auth.js  –  PESO AI
 import express from 'express';
 import bcrypt  from 'bcrypt';
 import jwt     from 'jsonwebtoken';

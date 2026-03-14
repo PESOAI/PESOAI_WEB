@@ -15,6 +15,7 @@ import {
 } from '../utils/formulaEngine';
 
 import { generatePDF } from '../pdf/pdfHelpers';
+import { generateDashboardXLSX } from '../pdf/dashboardAnalyticsExport';
 
 import PdfExportModal from '../components/PdfExportModal';
 import { EmptyState, Card, Dropdown } from '../components/UIAtoms';
@@ -69,6 +70,7 @@ const AdminDashboard = () => {
   const [riskFilter,   setRiskFilter]   = useState('all');
   const [showPdf,      setShowPdf]      = useState(false);
   const [pdfGen,       setPdfGen]       = useState(false);
+  const [xlsxGen,      setXlsxGen]      = useState(false);
 
   const trendRef   = useRef(null);
   const riskRef    = useRef(null);
@@ -143,6 +145,14 @@ const AdminDashboard = () => {
     setShowPdf(false);
   };
 
+  const handleExportXLSX = async () => {
+    setXlsxGen(true);
+    try {
+      await generateDashboardXLSX({ kpis, allRiskUsers, trendFilter, trend, savingsDist, categories });
+    } catch (e) { console.error('Excel export error:', e); }
+    setXlsxGen(false);
+  };
+
   const filteredRisk = riskFilter === 'all' ? allRiskUsers : allRiskUsers.filter(u => u.risk_level === riskFilter);
   const riskCount    = (level) => allRiskUsers.filter(u => u.risk_level === level).length;
   const top6         = categories.slice(0, 6);
@@ -162,7 +172,23 @@ const AdminDashboard = () => {
   return (
     <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: "'Sora', 'Plus Jakarta Sans', sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } } * { box-sizing: border-box; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
+        .action-btn {
+          display: flex; align-items: center; gap: 7px;
+          padding: 9px 16px; border-radius: 10px;
+          border: 1.5px solid #E2E8F0; background: #fff;
+          color: #334155; font-size: 12px; font-weight: 700;
+          cursor: pointer; font-family: inherit;
+          transition: background 0.15s, border-color 0.15s;
+        }
+        .action-btn:hover { background: #F8FAFC; border-color: #CBD5E1; }
+        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      `}</style>
 
       <PdfExportModal open={showPdf} onClose={() => setShowPdf(false)} onExport={handleExportPdf} generating={pdfGen} />
 
@@ -175,13 +201,36 @@ const AdminDashboard = () => {
             <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.03em', lineHeight: 1.2 }}>System Monitoring</h1>
             {lastUpdate && <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginTop: 4 }}>Last updated at {lastUpdate}</p>}
           </div>
+
+          {/* ── ACTION BUTTONS ── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={() => setShowPdf(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg,#3B82F6,#60A5FA)', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}>
-              <FileText size={12} />Export PDF
+
+            {/* Export PDF */}
+            <button className="action-btn" onClick={() => setShowPdf(true)}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              Export PDF
             </button>
-            <button onClick={handleRefresh} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 12, border: '1.5px solid #E2E8F0', background: '#fff', color: '#64748B', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-              <RefreshCw size={12} />Refresh
+
+            {/* Export Excel */}
+            <button className="action-btn" onClick={handleExportXLSX} disabled={xlsxGen}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M3 9h18M9 21V9"/>
+              </svg>
+              {xlsxGen ? 'Exporting…' : 'Export Excel'}
             </button>
+
+            {/* Refresh */}
+            <button className="action-btn" onClick={handleRefresh} style={{ color: '#64748B' }}>
+              <RefreshCw size={13} color="#64748B" />
+              Refresh
+            </button>
+
           </div>
         </div>
 

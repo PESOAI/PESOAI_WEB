@@ -2,10 +2,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, MapPin, Mail, Clock, Calendar,
-  CheckCircle, XCircle, Keyboard, FileText,
+  CheckCircle, XCircle, Keyboard, FileText, FileSpreadsheet,
 } from 'lucide-react';
 import { ConfirmModal, Toast, useConfirm } from '../components/GlobalConfirmModal';
-import { generateUsersPDF } from '../pdf/usersPDF';
+import { generateUsersPDF  } from '../pdf/usersPDF';
+import { generateUsersXLSX } from '../pdf/usersExport';
 import logo from '../assets/logo.png';
 
 const UserManagement = () => {
@@ -14,6 +15,7 @@ const UserManagement = () => {
   const [filterStatus, setFilterStatus] = useState('All');
   const [loading,      setLoading]      = useState(true);
   const [pdfBusy,      setPdfBusy]      = useState(false);
+  const [xlsxBusy,     setXlsxBusy]    = useState(false);
   const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
 
   const searchInputRef = useRef(null);
@@ -43,8 +45,8 @@ const UserManagement = () => {
     finally { setLoading(false); }
   };
 
-  const fullName  = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
-  const statusOf  = (u) => u.onboarding_completed ? 'Active' : 'Inactive';
+  const fullName = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+  const statusOf = (u) => u.onboarding_completed ? 'Active' : 'Inactive';
 
   const formatDate = d => {
     if (!d) return 'Never';
@@ -106,26 +108,41 @@ const UserManagement = () => {
     return matchesSearch && matchesStatus;
   });
 
+  // ── Export handlers ────────────────────────────────────────
   const handleExportPDF = async () => {
     setPdfBusy(true);
-    try { await generateUsersPDF(filteredUsers, { search: searchTerm, status: filterStatus }, logo); }
-    catch (e) { console.error('Users PDF error:', e); }
-    finally { setPdfBusy(false); }
+    try {
+      // PDF export: logo still passed as param (unchanged)
+      await generateUsersPDF(filteredUsers, { search: searchTerm, status: filterStatus }, logo);
+    } catch (e) {
+      console.error('PDF error:', e);
+      showToast('PDF export failed. Try again.', 'error');
+    } finally { setPdfBusy(false); }
   };
 
+  const handleExportXLSX = async () => {
+    setXlsxBusy(true);
+    try {
+      // Excel export: logo is handled inside usersExport.js — logo param removed
+      await generateUsersXLSX(filteredUsers, { search: searchTerm, status: filterStatus });
+      showToast(`Excel exported — ${filteredUsers.length} users.`, 'success');
+    } catch (e) {
+      console.error('Excel error:', e);
+      showToast('Excel export failed. Try again.', 'error');
+    } finally { setXlsxBusy(false); }
+  };
+
+  const anyBusy       = pdfBusy || xlsxBusy;
   const activeCount   = users.filter(u => u.onboarding_completed === true).length;
   const inactiveCount = users.filter(u => u.onboarding_completed !== true).length;
 
-  // ── Avatar helper ──────────────────────────────────────────
+  // ── Avatar ─────────────────────────────────────────────────
   const Avatar = ({ user, size = 10 }) => {
     const sizeClass = `h-${size} w-${size}`;
     if (user.profile_picture) {
       return (
-        <img
-          src={user.profile_picture}
-          alt={user.first_name}
-          className={`${sizeClass} rounded-full object-cover border border-slate-200`}
-        />
+        <img src={user.profile_picture} alt={user.first_name}
+          className={`${sizeClass} rounded-full object-cover border border-slate-200`} />
       );
     }
     return (
@@ -148,7 +165,8 @@ const UserManagement = () => {
       <ConfirmModal modal={modal} onConfirm={handleConfirm} onCancel={handleCancel} />
 
       <div className="p-8 bg-slate-50 min-h-screen font-sans">
-        {/* HEADER */}
+
+        {/* ── HEADER ─────────────────────────────────────────── */}
         <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-800 tracking-tight">User Access Control</h1>
@@ -158,8 +176,10 @@ const UserManagement = () => {
               </span>
             </div>
           </div>
-          <div className="flex gap-2">
-            <div className="relative w-full md:w-80">
+
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Search */}
+            <div className="relative w-full md:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
                 ref={searchInputRef} type="text"
@@ -168,17 +188,37 @@ const UserManagement = () => {
                 value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
               />
             </div>
-            <button
-              onClick={handleExportPDF} disabled={pdfBusy}
-              className="flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-bold text-slate-700 hover:bg-slate-100 transition-all disabled:opacity-50"
-            >
-              <FileText size={18} />
-              {pdfBusy ? 'Generating…' : 'Export PDF'}
-            </button>
+
+            {/* Export button group  PDF | Excel */}
+            <div className="flex items-center rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden divide-x divide-slate-200">
+
+              {/* PDF button */}
+              <button
+                onClick={handleExportPDF}
+                disabled={anyBusy}
+                title="Export PDF"
+                className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-red-50 hover:text-red-600 transition-all disabled:opacity-50"
+              >
+                <FileText size={16} className="text-red-500" />
+                {pdfBusy ? 'Generating…' : 'Export PDF'}
+              </button>
+
+              {/* Excel button */}
+              <button
+                onClick={handleExportXLSX}
+                disabled={anyBusy}
+                title="Export Excel (.xlsx)"
+                className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-green-50 hover:text-green-700 transition-all disabled:opacity-50"
+              >
+                <FileSpreadsheet size={16} className="text-green-600" />
+                {xlsxBusy ? 'Exporting…' : 'Export Excel'}
+              </button>
+
+            </div>
           </div>
         </div>
 
-        {/* FILTER PILLS */}
+        {/* ── FILTER PILLS ───────────────────────────────────── */}
         <div className="flex items-center gap-3 mb-5">
           {[
             { label: 'All',      count: users.length,   color: 'bg-slate-100 text-slate-600 border-slate-200'      },
@@ -196,7 +236,7 @@ const UserManagement = () => {
           </span>
         </div>
 
-        {/* TABLE */}
+        {/* ── TABLE ──────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -231,13 +271,8 @@ const UserManagement = () => {
                       {/* Contact Info */}
                       <td className="px-6 py-5">
                         <div className="flex flex-col space-y-1 text-xs text-slate-500">
-                          <div className="flex items-center gap-2">
-                            <Mail size={12} className="text-slate-300" />{user.email}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <MapPin size={12} className="text-slate-300" />
-                            {user.location || 'No Data'}
-                          </div>
+                          <div className="flex items-center gap-2"><Mail size={12} className="text-slate-300" />{user.email}</div>
+                          <div className="flex items-center gap-2"><MapPin size={12} className="text-slate-300" />{user.location || 'No Data'}</div>
                         </div>
                       </td>
 
@@ -282,6 +317,7 @@ const UserManagement = () => {
             </table>
           </div>
         </div>
+
       </div>
     </>
   );

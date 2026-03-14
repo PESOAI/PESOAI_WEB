@@ -1,4 +1,3 @@
-// api/server.js  –  PESO AI
 import express from 'express';
 import cors    from 'cors';
 import 'dotenv/config';
@@ -14,8 +13,8 @@ app.use(cors({
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
-    /^http:\/\/192\.168\./,   // Android on LAN
-    /^http:\/\/10\./,         // Android emulator
+    /^http:\/\/192\.168\./,   
+    /^http:\/\/10\./,         
   ],
   methods:      ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

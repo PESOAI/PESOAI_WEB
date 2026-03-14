@@ -1,4 +1,3 @@
-// api/routes/users.js  –  PESO AI
 import express from 'express';
 import pool    from '../db.js';
 

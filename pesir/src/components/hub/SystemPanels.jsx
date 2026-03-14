@@ -2,16 +2,74 @@
 // Panels: LogsPanel, AuditPanel, AdminMgmtPanel
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  RefreshCw, Trash2, Download, Printer,
+  RefreshCw, Trash2, Printer, FileSpreadsheet,
   UserMinus, ShieldCheck, Eye, EyeOff,
+  LogIn, LogOut, Edit3, PlusCircle, Trash,
+  Image, Key, User, Shield,
 } from 'lucide-react';
 import { Badge } from '../UIAtoms';
-import { generateAuditPDF } from '../../pdf/auditPDF';
+import { generateAuditPDF }  from '../../pdf/auditPDF';
+import { generateAuditXLSX } from '../../pdf/auditExport';
 import logo from '../../assets/logo.png';
 
 const BASE = 'http://localhost:5000';
 
-// ─── Activity Logs Panel ──────────────────────────────────────
+const gf = (log, ...keys) => {
+  for (const k of keys) if (log[k] != null && log[k] !== '') return String(log[k]);
+  return '—';
+};
+
+const actionCfg = (action = '') => {
+  const a = action.toLowerCase();
+  if (/^login/.test(a))                       return { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE', icon: <LogIn      size={9} /> };
+  if (/^logout/.test(a))                      return { bg: '#F8FAFC', text: '#475569', border: '#CBD5E1', icon: <LogOut     size={9} /> };
+  if (/(creat|add)/.test(a))                  return { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0', icon: <PlusCircle size={9} /> };
+  if (/(delet|remov|clear)/.test(a))          return { bg: '#FFF5F5', text: '#B91C1C', border: '#FECACA', icon: <Trash     size={9} /> };
+  if (/(password|pw)/.test(a))                return { bg: '#FFF7ED', text: '#C2410C', border: '#FED7AA', icon: <Key       size={9} /> };
+  if (/(avatar|picture|photo|image)/.test(a)) return { bg: '#FDF4FF', text: '#7E22CE', border: '#E9D5FF', icon: <Image     size={9} /> };
+  if (/(display.?name|name|profile)/.test(a)) return { bg: '#F0FDF4', text: '#047857', border: '#6EE7B7', icon: <User      size={9} /> };
+  if (/(edit|updat|chang)/.test(a))           return { bg: '#FFFBEB', text: '#B45309', border: '#FDE68A', icon: <Edit3     size={9} /> };
+  return                                             { bg: '#F1F5F9', text: '#475569', border: '#E2E8F0', icon: <Shield    size={9} /> };
+};
+
+const ActionBadge = ({ action }) => {
+  const { bg, text, border, icon } = actionCfg(action);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 99, fontSize: 9, fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase', background: bg, color: text, border: `1px solid ${border}`, lineHeight: 1.4, maxWidth: '100%', overflow: 'hidden' }}>
+      <span style={{ flexShrink: 0 }}>{icon}</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action}</span>
+    </span>
+  );
+};
+
+const RoleChip = ({ role }) => {
+  const isMain = /main/i.test(role || '');
+  return (
+    <span style={{ display: 'inline-block', fontSize: 8, fontWeight: 800, padding: '2px 6px', borderRadius: 99, textTransform: 'uppercase', letterSpacing: '0.05em', background: isMain ? '#EEF2FF' : '#F1F5F9', color: isMain ? '#4338CA' : '#64748B', border: `1px solid ${isMain ? '#C7D2FE' : '#E2E8F0'}`, whiteSpace: 'nowrap', marginTop: 3 }}>
+      {isMain ? 'Main' : 'Staff'}
+    </span>
+  );
+};
+
+const FILTER_DEFS = [
+  { key: 'all',     label: 'All'     },
+  { key: 'today',   label: 'Today'   },
+  { key: 'Login',   label: 'Login'   },
+  { key: 'Logout',  label: 'Logout'  },
+  { key: 'Created', label: 'Created' },
+  { key: 'Deleted', label: 'Deleted' },
+  { key: 'Updated', label: 'Updated' },
+];
+
+const filterMatch = (log, filter) => {
+  if (filter === 'all') return true;
+  if (filter === 'today') return String(gf(log, 'created_at', 'time', 'timestamp')).startsWith(new Date().toISOString().slice(0, 10));
+  return gf(log, 'action').toLowerCase().includes(filter.toLowerCase());
+};
+
+/* ══════════════════════════════════════════════════════════════
+   ACTIVITY LOGS PANEL
+══════════════════════════════════════════════════════════════ */
 export const LogsPanel = ({ showToast }) => {
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,9 +80,7 @@ export const LogsPanel = ({ showToast }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const r = await fetch(`${BASE}/api/logs`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const r = await fetch(`${BASE}/api/logs`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error();
       const d = await r.json();
       setLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) : []);
@@ -38,70 +94,79 @@ export const LogsPanel = ({ showToast }) => {
     if (!isMain) { showToast('Only Main Admin can clear logs.', 'error'); return; }
     if (!window.confirm('Clear all logs? This cannot be undone.')) return;
     const token = localStorage.getItem('token');
-    await fetch(`${BASE}/api/logs`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    await fetch(`${BASE}/api/logs`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
     setLogs([]);
     showToast('All logs cleared.', 'warning');
   };
 
-  const typeStyle = { FAILED: 'bg-red-500', SYSTEM: 'bg-blue-500', SUCCESS: 'bg-green-600' };
-  const rowStyle  = { FAILED: 'bg-red-50 border-red-100', SYSTEM: 'bg-blue-50 border-blue-100', SUCCESS: 'bg-slate-50 border-slate-100' };
+  const typeStyle = {
+    FAILED:  { bg: '#FFF5F5', text: '#B91C1C', dot: '#EF4444' },
+    SYSTEM:  { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
+    SUCCESS: { bg: '#F0FDF4', text: '#15803D', dot: '#22C55E' },
+  };
 
   return (
-    <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-400">{logs.length} records</span>
-          <button onClick={fetchLogs} disabled={loading} className="flex items-center gap-1 text-[10px] font-bold text-blue-500 hover:underline disabled:opacity-40">
-            <RefreshCw size={9} className={loading ? 'animate-spin' : ''} />Refresh
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8' }}>{logs.length} records</span>
+          <button onClick={fetchLogs} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#3B82F6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />Refresh
           </button>
         </div>
         {isMain && (
-          <button onClick={handleClear} className="text-[9px] font-black text-red-500 uppercase hover:underline flex items-center gap-1">
+          <button onClick={handleClear} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 900, color: '#EF4444', textTransform: 'uppercase', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             <Trash2 size={10} />Clear All
           </button>
         )}
       </div>
-
       {loading ? (
-        <div className="flex justify-center py-8"><RefreshCw size={20} className="text-slate-300 animate-spin" /></div>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
+          <RefreshCw size={20} style={{ color: '#CBD5E1', animation: 'spin 0.8s linear infinite' }} />
+        </div>
+      ) : logs.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: '#94A3B8', fontSize: 12, fontStyle: 'italic' }}>No logs yet.</div>
       ) : (
-        <div className="space-y-2">
-          {logs.length === 0
-            ? <div className="text-center py-10 text-slate-400 text-xs italic">No logs yet.</div>
-            : logs.map((log, i) => (
-              <div key={log.id ?? i} className={`p-3 rounded-2xl border flex flex-col gap-1 ${rowStyle[log.type] || 'bg-slate-50 border-slate-100'}`}>
-                <div className="flex justify-between items-center">
-                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full text-white ${typeStyle[log.type] || 'bg-slate-500'}`}>{log.type}</span>
-                  <span className="text-[9px] text-slate-400 font-medium">{new Date(log.timestamp).toLocaleString()}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {logs.map((log, i) => {
+            const s = typeStyle[log.type] || typeStyle.SUCCESS;
+            return (
+              <div key={log.id ?? i} style={{ padding: '10px 12px', borderRadius: 12, background: s.bg, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: s.text }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, display: 'inline-block' }} />{log.type}
+                  </span>
+                  <span style={{ fontSize: 9, color: '#94A3B8', fontWeight: 500 }}>
+                    {new Date(log.timestamp).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                  </span>
                 </div>
-                <p className="text-xs font-black text-slate-900">{log.user_name}</p>
-                <p className="text-[10px] text-slate-500 leading-tight">{log.message}</p>
+                <p style={{ fontSize: 11, fontWeight: 800, color: '#0F172A', margin: 0 }}>{log.user_name}</p>
+                <p style={{ fontSize: 10, color: '#64748B', margin: 0, lineHeight: 1.4 }}>{log.message}</p>
               </div>
-            ))
-          }
+            );
+          })}
         </div>
       )}
     </div>
   );
 };
 
-// ─── Audit Trail Panel ────────────────────────────────────────
+/* ══════════════════════════════════════════════════════════════
+   AUDIT TRAIL PANEL
+══════════════════════════════════════════════════════════════ */
 export const AuditPanel = () => {
-  const [logs,    setLogs]    = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [pdfBusy, setPdfBusy] = useState(false);
+  const [logs,     setLogs]     = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [pdfBusy,  setPdfBusy]  = useState(false);
+  const [xlsxBusy, setXlsxBusy] = useState(false);
+  const [filter,   setFilter]   = useState('all');
 
   const fetchAudit = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const r     = await fetch(`${BASE}/api/auth/audit-logs`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!r.ok) throw new Error('fetch failed');
+      const r     = await fetch(`${BASE}/api/auth/audit-logs`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error();
       const d = await r.json();
       setLogs(Array.isArray(d) ? d : []);
     } catch { setLogs([]); }
@@ -110,94 +175,147 @@ export const AuditPanel = () => {
 
   useEffect(() => { fetchAudit(); }, []);
 
-  const getColor = action => {
-    const a = (action || '').toLowerCase();
-    if (/(delet|remov|clear)/.test(a))                return 'bg-red-100 text-red-600';
-    if (/(creat|add)/.test(a))                        return 'bg-green-100 text-green-700';
-    if (/(edit|updat|chang|password|avatar)/.test(a)) return 'bg-amber-100 text-amber-600';
-    if (/(login|logout)/.test(a))                     return 'bg-blue-100 text-blue-600';
-    return 'bg-slate-200 text-slate-600';
-  };
-
-  const exportCSV = () => {
-    const header = ['Admin', 'Role', 'Action', 'Time'];
-    const rows   = logs.map(l => [l.admin_name || '', l.admin_role || '', l.action || '', l.created_at || '']);
-    const csv    = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a      = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
-      download: `audit-${new Date().toISOString().slice(0, 10)}.csv`,
-    });
-    a.click();
+  const handleExportXLSX = async () => {
+    setXlsxBusy(true);
+    try { await generateAuditXLSX(logs, { filter }); }
+    catch (e) { console.error('Audit Excel error:', e); }
+    finally { setXlsxBusy(false); }
   };
 
   const handleExportPDF = async () => {
     setPdfBusy(true);
-    try { await generateAuditPDF(logs, logo); }
+    try { await generateAuditPDF(logs, { filter }, logo); }
     catch (e) { console.error('Audit PDF error:', e); }
     finally { setPdfBusy(false); }
   };
 
+  const visible  = logs.filter(l => filterMatch(l, filter));
+  const countFor = (key) => key === 'all' ? logs.length : logs.filter(l => filterMatch(l, key)).length;
+  const anyBusy  = pdfBusy || xlsxBusy;
+
   return (
-    <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-400">{logs.length} records</span>
-          <button onClick={fetchAudit} disabled={loading} className="flex items-center gap-1 text-[10px] font-bold text-blue-500 hover:underline disabled:opacity-40">
-            <RefreshCw size={9} className={loading ? 'animate-spin' : ''} />Refresh
+    /* key fix: overflow: hidden on wrapper kills the horizontal scrollbar */
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '65vh', overflow: 'hidden' }}>
+
+      {/* Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8' }}>{logs.length} records</span>
+          <button onClick={fetchAudit} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#3B82F6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />Refresh
           </button>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={exportCSV} className="flex items-center gap-1 text-[10px] font-black text-emerald-600 hover:underline">
-            <Download size={10} />CSV
+        <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #E2E8F0', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+          <button onClick={handleExportXLSX} disabled={anyBusy || logs.length === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 10, fontWeight: 900, color: xlsxBusy ? '#94A3B8' : '#15803D', background: 'none', border: 'none', borderRight: '1px solid #E2E8F0', cursor: anyBusy || logs.length === 0 ? 'not-allowed' : 'pointer', opacity: anyBusy || logs.length === 0 ? 0.5 : 1 }}>
+            {xlsxBusy ? <><RefreshCw size={10} style={{ animation: 'spin 0.8s linear infinite' }} />Exporting…</> : <><FileSpreadsheet size={11} />Excel</>}
           </button>
-          <button
-            onClick={handleExportPDF} disabled={pdfBusy || logs.length === 0}
-            className="flex items-center gap-1 text-[10px] font-black text-blue-600 hover:underline disabled:opacity-40"
-          >
-            {pdfBusy
-              ? <><RefreshCw size={10} className="animate-spin" />Generating…</>
-              : <><Printer size={10} />PDF</>}
+          <button onClick={handleExportPDF} disabled={anyBusy || logs.length === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 10, fontWeight: 900, color: pdfBusy ? '#94A3B8' : '#1D4ED8', background: 'none', border: 'none', cursor: anyBusy || logs.length === 0 ? 'not-allowed' : 'pointer', opacity: anyBusy || logs.length === 0 ? 0.5 : 1 }}>
+            {pdfBusy ? <><RefreshCw size={10} style={{ animation: 'spin 0.8s linear infinite' }} />Generating…</> : <><Printer size={10} />PDF</>}
           </button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-8"><RefreshCw size={20} className="text-slate-300 animate-spin" /></div>
-      ) : logs.length === 0 ? (
-        <div className="text-center py-10 text-slate-400 text-xs italic">No audit records yet.</div>
-      ) : (
-        <div className="space-y-2">
-          {logs.map((entry, i) => (
-            <div key={entry.id ?? i} className="p-3 rounded-xl border border-slate-100 bg-slate-50 flex items-start gap-3">
-              <div className={`px-2 py-1 rounded-lg flex-shrink-0 text-[9px] font-black uppercase whitespace-nowrap ${getColor(entry.action)}`}>
-                {(entry.action || 'Action').split(' ')[0]}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs font-black text-slate-900 leading-tight">{entry.action}</p>
-                  <p className="text-[9px] text-slate-400 font-medium flex-shrink-0 whitespace-nowrap">{new Date(entry.created_at).toLocaleString()}</p>
-                </div>
-                <p className="text-[10px] text-slate-500 font-medium">
-                  Admin: <span className="text-blue-600 font-bold">{entry.admin_name || '—'}</span>
-                  {entry.admin_role && (
-                    <span className={`ml-1.5 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full ${entry.admin_role === 'Main Admin' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
-                      {entry.admin_role}
-                    </span>
-                  )}
-                </p>
-                {entry.target_type && entry.target_type !== 'general' && (
-                  <p className="text-[10px] text-slate-400">Target: {entry.target_type}</p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Filter pills */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0 }}>
+        {FILTER_DEFS.map(({ key, label }) => {
+          const cnt    = countFor(key);
+          const active = filter === key;
+          const { bg, text, border } = actionCfg(key === 'all' || key === 'today' ? '' : key);
+          return (
+            <button key={key} onClick={() => setFilter(key)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', cursor: 'pointer', transition: 'all 0.15s', background: active ? '#0F172A' : key === 'today' ? '#F0FDFA' : bg, color: active ? '#fff' : key === 'today' ? '#0F766E' : text, border: `1.5px solid ${active ? '#0F172A' : key === 'today' ? '#99F6E4' : border}` }}>
+              {label}
+              <span style={{ background: active ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.07)', color: active ? '#fff' : 'inherit', borderRadius: 99, padding: '1px 5px', fontSize: 8, fontWeight: 900 }}>{cnt}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Table — overflowX hidden, no horizontal scrollbar ever */}
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', borderRadius: 12, border: '1px solid #E2E8F0', background: '#fff' }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+            <RefreshCw size={22} style={{ color: '#CBD5E1', animation: 'spin 0.8s linear infinite' }} />
+          </div>
+        ) : visible.length === 0 ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94A3B8', fontSize: 12, fontStyle: 'italic' }}>
+            No entries match this filter.
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: '44%' }} />
+              <col style={{ width: '26%' }} />
+              <col style={{ width: '30%' }} />
+            </colgroup>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+              <tr style={{ background: '#0F172A' }}>
+                <th style={{ padding: '10px 12px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#64748B', textAlign: 'left',  borderBottom: '2px solid #1E293B' }}>Action</th>
+                <th style={{ padding: '10px 12px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#64748B', textAlign: 'left',  borderBottom: '2px solid #1E293B' }}>Admin</th>
+                <th style={{ padding: '10px 12px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#64748B', textAlign: 'right', borderBottom: '2px solid #1E293B' }}>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((entry, i) => {
+                const action = gf(entry, 'action');
+                const admin  = gf(entry, 'admin_name', 'admin', 'user');
+                const role   = gf(entry, 'admin_role', 'role');
+                const ts     = gf(entry, 'created_at', 'time', 'timestamp');
+                const rowBg  = i % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+
+                let tsDate = '—', tsTime = '';
+                try {
+                  const d = new Date(ts);
+                  if (!isNaN(d)) {
+                    tsDate = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+                    tsTime = d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true });
+                  }
+                } catch {}
+
+                return (
+                  <tr key={entry.id ?? i}
+                    style={{ background: rowBg, transition: 'background 0.1s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#EEF2FF'}
+                    onMouseLeave={e => e.currentTarget.style.background = rowBg}>
+
+                    {/* Action */}
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9', overflow: 'hidden' }}>
+                      <ActionBadge action={action} />
+                    </td>
+
+                    {/* Admin + Role */}
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9', overflow: 'hidden' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{admin}</div>
+                      <RoleChip role={role} />
+                    </td>
+
+                    {/* Timestamp — two lines, right-aligned */}
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9', textAlign: 'right' }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>{tsDate}</div>
+                      <div style={{ fontSize: 9,  fontWeight: 500, color: '#94A3B8',  whiteSpace: 'nowrap' }}>{tsTime}</div>
+                    </td>
+
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{ flexShrink: 0, textAlign: 'right' }}>
+        <span style={{ fontSize: 9, color: '#94A3B8', fontWeight: 600 }}>Showing {visible.length} of {logs.length} records</span>
+      </div>
+
     </div>
   );
 };
 
-// ─── Password Requirements Checker ───────────────────────────
+/* ══════════════════════════════════════════════════════════════
+   PASSWORD REQUIREMENTS
+══════════════════════════════════════════════════════════════ */
 const pwChecks = [
   { key: 'length',  label: '8+ characters',   test: p => p.length >= 8 },
   { key: 'upper',   label: 'Uppercase letter', test: p => /[A-Z]/.test(p) },
@@ -206,22 +324,22 @@ const pwChecks = [
 ];
 
 const PasswordRequirements = ({ password }) => (
-  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', padding: '10px 12px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #F1F5F9' }}>
     {pwChecks.map(({ key, label, test }) => {
       const passed = test(password);
       return (
-        <div key={key} className="flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors duration-200 ${passed ? 'bg-green-500' : 'bg-slate-300'}`} />
-          <span className={`text-[10px] font-semibold transition-colors duration-200 ${passed ? 'text-green-600' : 'text-slate-400'}`}>
-            {label}
-          </span>
+        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: passed ? '#22C55E' : '#CBD5E1', transition: 'background 0.2s' }} />
+          <span style={{ fontSize: 10, fontWeight: 600, color: passed ? '#16A34A' : '#94A3B8', transition: 'color 0.2s' }}>{label}</span>
         </div>
       );
     })}
   </div>
 );
 
-// ─── Admin Management Panel ───────────────────────────────────
+/* ══════════════════════════════════════════════════════════════
+   ADMIN MANAGEMENT PANEL
+══════════════════════════════════════════════════════════════ */
 export const AdminMgmtPanel = ({ currentUser, showToast }) => {
   const [view,     setView]     = useState('list');
   const [admins,   setAdmins]   = useState([]);
@@ -230,42 +348,29 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
   const [busy,     setBusy]     = useState(false);
   const [msg,      setMsg]      = useState({ text: '', type: '' });
   const [showPass, setShowPass] = useState(false);
-
-  // ── FIX: keep a ref to the interval so we can clear it on unmount ──
-  const pollRef = useRef(null);
-
+  const pollRef   = useRef(null);
   const allPassed = pwChecks.every(({ test }) => test(form.password));
 
   const fetchAdmins = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const r     = await fetch(`${BASE}/api/auth/admins`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const r     = await fetch(`${BASE}/api/auth/admins`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error();
       setAdmins(await r.json());
     } catch { setAdmins([]); }
     finally { setLoading(false); }
   };
 
-  // ── FIX: auto-refresh every 30 s so Main Admin sees changes made by
-  //         other admins (avatar saves, display name updates) without
-  //         needing to manually click Refresh. ──────────────────────
   useEffect(() => {
     fetchAdmins();
     pollRef.current = setInterval(fetchAdmins, 30_000);
     return () => clearInterval(pollRef.current);
   }, []);
 
-  // Stop polling while the "Add New" form is open (no need to refresh then)
   useEffect(() => {
-    if (view === 'add') {
-      clearInterval(pollRef.current);
-    } else {
-      clearInterval(pollRef.current);
-      pollRef.current = setInterval(fetchAdmins, 30_000);
-    }
+    clearInterval(pollRef.current);
+    if (view !== 'add') pollRef.current = setInterval(fetchAdmins, 30_000);
     return () => clearInterval(pollRef.current);
   }, [view]);
 
@@ -275,10 +380,7 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
     if (!window.confirm(`Remove admin "${name}"? This cannot be undone.`)) return;
     try {
       const token = localStorage.getItem('token');
-      const res   = await fetch(`${BASE}/api/auth/admins/${admin.admin_id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res   = await fetch(`${BASE}/api/auth/admins/${admin.admin_id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
       const data  = await res.json();
       if (!res.ok) throw new Error(data.message);
       showToast(`Removed: ${name}`, 'warning');
@@ -289,10 +391,7 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
   const handleCreate = async e => {
     e.preventDefault();
     setMsg({ text: '', type: '' });
-    if (!allPassed) {
-      setMsg({ text: '❌ Password does not meet all requirements.', type: 'error' });
-      return;
-    }
+    if (!allPassed) { setMsg({ text: '❌ Password does not meet all requirements.', type: 'error' }); return; }
     setBusy(true);
     try {
       const token = localStorage.getItem('token');
@@ -311,11 +410,11 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
   };
 
   return (
-    <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
-      <div className="flex gap-2">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }}>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {[{ k: 'list', label: `Admins (${admins.length})` }, { k: 'add', label: '+ Add New' }].map(({ k, label }) => (
           <button key={k} onClick={() => { setView(k); setMsg({ text: '', type: '' }); setForm({ username: '', password: '' }); setShowPass(false); }}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${k === view ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+            style={{ flex: 1, padding: '8px 0', borderRadius: 12, fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s', background: k === view ? '#0F172A' : '#F1F5F9', color: k === view ? '#FFFFFF' : '#64748B', border: 'none' }}>
             {label}
           </button>
         ))}
@@ -323,115 +422,79 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
 
       {view === 'list' && (
         <>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400">{admins.length} accounts</span>
-            <button onClick={fetchAdmins} disabled={loading} className="flex items-center gap-1 text-[10px] font-bold text-blue-500 hover:underline disabled:opacity-40">
-              <RefreshCw size={9} className={loading ? 'animate-spin' : ''} />Refresh
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8' }}>{admins.length} accounts</span>
+            <button onClick={fetchAdmins} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#3B82F6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />Refresh
             </button>
           </div>
-          {loading
-            ? <div className="flex justify-center py-8"><RefreshCw size={18} className="text-slate-300 animate-spin" /></div>
-            : admins.length === 0
-            ? <div className="text-center py-8 text-slate-400 text-xs">No admins found.</div>
-            : (
-              <div className="space-y-2">
-                {admins.map((a, i) => {
-                  const username  = a.username || a.name || '?';
-                  // ── FIX: show display_name from DB if set, otherwise fall back to username ──
-                  const label     = a.display_name || username;
-                  const role      = a.role || 'Staff Admin';
-                  const isSelf    = username === currentUser.name;
-                  const isMainAcc = role === 'Main Admin';
-                  return (
-                    <div key={a.admin_id ?? i} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50 gap-2">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                          {a.avatar
-                            ? <img src={a.avatar} alt={username} className="w-full h-full object-cover" />
-                            : <ShieldCheck size={14} className="text-white" />}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            {/* Show display name prominently, username as subtitle if different */}
-                            <p className="text-xs font-bold text-slate-900">{label}</p>
-                            {isSelf && <Badge color="green">You</Badge>}
-                          </div>
-                          {a.display_name && a.display_name !== username && (
-                            <p className="text-[9px] text-slate-400 font-medium">@{username}</p>
-                          )}
-                          <Badge color={isMainAcc ? 'blue' : 'slate'}>{role}</Badge>
-                        </div>
+          {loading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
+              <RefreshCw size={18} style={{ color: '#CBD5E1', animation: 'spin 0.8s linear infinite' }} />
+            </div>
+          ) : admins.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px 0', color: '#94A3B8', fontSize: 12 }}>No admins found.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {admins.map((a, i) => {
+                const username  = a.username || a.name || '?';
+                const label     = a.display_name || username;
+                const role      = a.role || 'Staff Admin';
+                const isSelf    = username === currentUser.name;
+                const isMainAcc = role === 'Main Admin';
+                return (
+                  <div key={a.admin_id ?? i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 12, border: '1px solid #F1F5F9', background: '#F8FAFC', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 10, background: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                        {a.avatar ? <img src={a.avatar} alt={username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ShieldCheck size={14} color="#fff" />}
                       </div>
-                      {!isSelf && !isMainAcc
-                        ? <button onClick={() => handleDelete(a)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all flex-shrink-0"><UserMinus size={13} /></button>
-                        : <span className="text-[9px] text-slate-300 font-bold flex-shrink-0">Protected</span>}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#1E293B' }}>{label}</span>
+                          {isSelf && <Badge color="green">You</Badge>}
+                        </div>
+                        {a.display_name && a.display_name !== username && (
+                          <span style={{ fontSize: 9, color: '#94A3B8', fontWeight: 500, display: 'block' }}>@{username}</span>
+                        )}
+                        <div style={{ marginTop: 3 }}><Badge color={isMainAcc ? 'blue' : 'slate'}>{role}</Badge></div>
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
-            )
-          }
+                    {!isSelf && !isMainAcc
+                      ? <button onClick={() => handleDelete(a)} style={{ padding: 6, borderRadius: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#F87171', flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.background = '#FFF5F5'} onMouseLeave={e => e.currentTarget.style.background = 'none'}><UserMinus size={13} /></button>
+                      : <span style={{ fontSize: 9, color: '#CBD5E1', fontWeight: 700, flexShrink: 0 }}>Protected</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 
       {view === 'add' && (
-        <form onSubmit={handleCreate} className="space-y-3">
+        <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Username</label>
-            <input
-              type="text"
-              value={form.username}
-              onChange={e => setForm({ ...form, username: e.target.value })}
-              className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-blue-400 font-medium"
-              placeholder="Enter username"
-              required
-            />
+            <label style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'block', marginBottom: 6 }}>Username</label>
+            <input type="text" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} placeholder="Enter username" required />
           </div>
-
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Password</label>
-            <div className="relative">
-              <input
-                type={showPass ? 'text' : 'password'}
-                value={form.password}
-                onChange={e => setForm({ ...form, password: e.target.value })}
-                className="w-full p-3 pr-10 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-blue-400 font-medium"
-                placeholder="Enter password"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPass(p => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+            <label style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'block', marginBottom: 6 }}>Password</label>
+            <div style={{ position: 'relative' }}>
+              <input type={showPass ? 'text' : 'password'} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} style={{ width: '100%', padding: '10px 40px 10px 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} placeholder="Enter password" required />
+              <button type="button" onClick={() => setShowPass(p => !p)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex', alignItems: 'center' }}>
                 {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
           </div>
-
-          {form.password.length > 0 && (
-            <PasswordRequirements password={form.password} />
-          )}
-
-          <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
-            <ShieldCheck size={14} className="text-blue-600" />
-            <span className="text-xs font-bold text-slate-600">Role: <span className="text-blue-600">Staff Admin</span></span>
-            <span className="text-[9px] text-slate-400 ml-auto">(fixed)</span>
+          {form.password.length > 0 && <PasswordRequirements password={form.password} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #F1F5F9' }}>
+            <ShieldCheck size={14} color="#3B82F6" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Role: <span style={{ color: '#3B82F6' }}>Staff Admin</span></span>
+            <span style={{ fontSize: 9, color: '#CBD5E1', marginLeft: 'auto' }}>(fixed)</span>
           </div>
-
-          <button
-            type="submit"
-            disabled={busy || !allPassed || !form.username.trim()}
-            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
+          <button type="submit" disabled={busy || !allPassed || !form.username.trim()} style={{ padding: '12px 0', background: '#2563EB', color: '#fff', borderRadius: 12, fontWeight: 700, fontSize: 13, border: 'none', cursor: busy || !allPassed || !form.username.trim() ? 'not-allowed' : 'pointer', opacity: busy || !allPassed || !form.username.trim() ? 0.5 : 1, fontFamily: 'inherit' }}>
             {busy ? 'Creating…' : 'Create Staff Admin'}
           </button>
-
-          {msg.text && (
-            <p className={`text-center text-xs font-bold ${msg.type === 'success' ? 'text-blue-600' : 'text-red-500'}`}>
-              {msg.text}
-            </p>
-          )}
+          {msg.text && <p style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: msg.type === 'success' ? '#2563EB' : '#EF4444', margin: 0 }}>{msg.text}</p>}
         </form>
       )}
     </div>

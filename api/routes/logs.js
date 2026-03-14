@@ -1,5 +1,3 @@
-// api/routes/logs.js  –  PESO AI
-// FIX: added verifyToken protection + system_logs safe-create guard
 import express from 'express';
 import pool    from '../db.js';
 import { verifyToken } from './auth.js';

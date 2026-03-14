@@ -1,5 +1,4 @@
-// api/db.js  –  PESO AI
-import pg from 'pg';
+import pg, { Connection } from 'pg';
 import 'dotenv/config';
 
 const { Pool } = pg;
@@ -14,7 +13,7 @@ const pool = new Pool(
         user:     process.env.DB_USER,
         password: process.env.DB_PASSWORD,
       }
-);
+);  
 
 pool.connect((err, client, release) => {
   if (err) {
