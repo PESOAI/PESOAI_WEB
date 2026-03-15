@@ -9,12 +9,37 @@ export function useClickOutside(ref, cb) {
     return () => document.removeEventListener('mousedown', h);
   }, [ref, cb]);
 }
+
 /* ── Badge ───────────────────────────────────────────────────── */
-export const Badge = ({ children, color = '#6366F1', bg = '#EEF2FF' }) => (
-  <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700, background: bg, color }}>
-    {children}
-  </span>
-);
+// Supports named presets (green, blue, slate, amber, red)
+// OR raw hex via color/bg/border props for backward compat
+const BADGE_PRESETS = {
+  green: { color: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' },
+  blue:  { color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
+  slate: { color: '#475569', bg: '#F8FAFC', border: '#E2E8F0' },
+  amber: { color: '#B45309', bg: '#FFFBEB', border: '#FDE68A' },
+  red:   { color: '#B91C1C', bg: '#FFF5F5', border: '#FECACA' },
+};
+
+export const Badge = ({ children, color = 'blue', bg, border }) => {
+  const preset = BADGE_PRESETS[color]
+    ?? { color, bg: bg ?? '#EEF2FF', border: border ?? 'transparent' };
+  return (
+    <span style={{
+      display:      'inline-flex',
+      alignItems:   'center',
+      padding:      '2px 8px',
+      borderRadius: 99,
+      fontSize:     10,
+      fontWeight:   700,
+      background:   preset.bg,
+      color:        preset.color,
+      border:       `1px solid ${preset.border}`,
+    }}>
+      {children}
+    </span>
+  );
+};
 
 /* ── Divider ─────────────────────────────────────────────────── */
 export const Divider = ({ style = {} }) => (

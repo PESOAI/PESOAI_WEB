@@ -1,5 +1,6 @@
 // components/hub/SystemPanels.jsx — PESO AI
 // Panels: LogsPanel, AuditPanel, AdminMgmtPanel
+// REFACTOR: Consistent color system — only color/badge/tab/button styles changed, layout untouched
 import React, { useState, useEffect, useRef } from 'react';
 import {
   RefreshCw, Trash2, Printer, FileSpreadsheet,
@@ -14,43 +15,203 @@ import logo from '../../assets/logo.png';
 
 const BASE = 'http://localhost:5000';
 
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS — single source of truth for every color used
+   ═══════════════════════════════════════════════════════════════
+   Semantic roles:
+     primary   → dashboard brand  (#0F172A navy + #EEF2FF tint)
+     success   → login / created  (green)
+     neutral   → logout / default (slate-gray)
+     warning   → updated          (amber-orange)
+     danger    → deleted          (red)
+     info      → general info     (blue, kept for log types)
+*/
+const C = {
+  // ── Brand / Primary ──────────────────────────────────────────
+  primary:        '#0F172A',
+  primaryHover:   '#1E293B',
+  primaryMid:     '#334155',
+  primaryLight:   '#EEF2FF',
+  primaryBorder:  '#C7D2FE',
+  primaryText:    '#4338CA',
+
+  // ── Success (green) — Login, Created ─────────────────────────
+  successBg:      '#F0FDF4',
+  successBorder:  '#BBF7D0',
+  successText:    '#15803D',
+  successDot:     '#22C55E',
+
+  // ── Neutral (slate) — Logout, Default ────────────────────────
+  neutralBg:      '#F8FAFC',
+  neutralBorder:  '#E2E8F0',
+  neutralText:    '#475569',
+  neutralDot:     '#94A3B8',
+  neutralSubtext: '#94A3B8',
+  neutralLine:    '#F1F5F9',
+
+  // ── Warning (amber) — Updated ────────────────────────────────
+  warningBg:      '#FFFBEB',
+  warningBorder:  '#FDE68A',
+  warningText:    '#B45309',
+  warningDot:     '#F59E0B',
+
+  // ── Danger (red) — Deleted ───────────────────────────────────
+  dangerBg:       '#FFF5F5',
+  dangerBorder:   '#FECACA',
+  dangerText:     '#B91C1C',
+  dangerDot:      '#EF4444',
+
+  // ── Info (blue) — general / system ───────────────────────────
+  infoBg:         '#EFF6FF',
+  infoBorder:     '#BFDBFE',
+  infoText:       '#1D4ED8',
+  infoDot:        '#3B82F6',
+
+  // ── Surface ───────────────────────────────────────────────────
+  surface:        '#FFFFFF',
+  surfaceAlt:     '#F8FAFC',
+  rowHover:       '#F1F5F9',   // unified hover for ALL table rows
+
+  // ── Text ─────────────────────────────────────────────────────
+  textBase:       '#0F172A',
+  textMid:        '#1E293B',
+  textSub:        '#475569',
+  textMuted:      '#94A3B8',
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SHARED BUTTON STYLES — keeps Export / Refresh visually aligned
+   ═══════════════════════════════════════════════════════════════ */
+const btnBase = {
+  display:    'flex',
+  alignItems: 'center',
+  gap:        5,
+  padding:    '6px 12px',
+  fontSize:   10,
+  fontWeight: 700,
+  background: 'none',
+  border:     'none',
+  cursor:     'pointer',
+  fontFamily: 'inherit',
+  transition: 'color 0.15s',
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════════════════════════ */
 const gf = (log, ...keys) => {
   for (const k of keys) if (log[k] != null && log[k] !== '') return String(log[k]);
   return '—';
 };
 
+/**
+ * Maps an action string → one of 5 semantic color sets.
+ * All badge colors now derive from C tokens, no random hex.
+ *
+ * Semantic mapping:
+ *   success  → login, created, add
+ *   neutral  → logout, default
+ *   warning  → updated, edited, changed, password, avatar, name/profile
+ *   danger   → deleted, removed, cleared
+ *   info     → (reserved for system log types)
+ */
 const actionCfg = (action = '') => {
   const a = action.toLowerCase();
-  if (/^login/.test(a))                       return { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE', icon: <LogIn      size={9} /> };
-  if (/^logout/.test(a))                      return { bg: '#F8FAFC', text: '#475569', border: '#CBD5E1', icon: <LogOut     size={9} /> };
-  if (/(creat|add)/.test(a))                  return { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0', icon: <PlusCircle size={9} /> };
-  if (/(delet|remov|clear)/.test(a))          return { bg: '#FFF5F5', text: '#B91C1C', border: '#FECACA', icon: <Trash     size={9} /> };
-  if (/(password|pw)/.test(a))                return { bg: '#FFF7ED', text: '#C2410C', border: '#FED7AA', icon: <Key       size={9} /> };
-  if (/(avatar|picture|photo|image)/.test(a)) return { bg: '#FDF4FF', text: '#7E22CE', border: '#E9D5FF', icon: <Image     size={9} /> };
-  if (/(display.?name|name|profile)/.test(a)) return { bg: '#F0FDF4', text: '#047857', border: '#6EE7B7', icon: <User      size={9} /> };
-  if (/(edit|updat|chang)/.test(a))           return { bg: '#FFFBEB', text: '#B45309', border: '#FDE68A', icon: <Edit3     size={9} /> };
-  return                                             { bg: '#F1F5F9', text: '#475569', border: '#E2E8F0', icon: <Shield    size={9} /> };
+
+  // ── Login ───────────────────── SUCCESS (green)
+  if (/^login/.test(a))
+    return { bg: C.successBg, text: C.successText, border: C.successBorder, icon: <LogIn  size={9} /> };
+
+  // ── Logout ──────────────────── NEUTRAL (slate)
+  if (/^logout/.test(a))
+    return { bg: C.neutralBg, text: C.neutralText, border: C.neutralBorder, icon: <LogOut size={9} /> };
+
+  // ── Created / Added ─────────── INFO/BLUE (distinct from login-green)
+  if (/(creat|add)/.test(a))
+    return { bg: C.infoBg, text: C.infoText, border: C.infoBorder, icon: <PlusCircle size={9} /> };
+
+  // ── Deleted / Removed / Cleared ─ DANGER (red)
+  if (/(delet|remov|clear)/.test(a))
+    return { bg: C.dangerBg, text: C.dangerText, border: C.dangerBorder, icon: <Trash   size={9} /> };
+
+  // ── Updated / Edited / Changed ── WARNING (amber) — one bucket, consistent
+  if (/(edit|updat|chang)/.test(a))
+    return { bg: C.warningBg, text: C.warningText, border: C.warningBorder, icon: <Edit3 size={9} /> };
+
+  // ── Password change ─────────── WARNING (same bucket as "update")
+  if (/(password|pw)/.test(a))
+    return { bg: C.warningBg, text: C.warningText, border: C.warningBorder, icon: <Key  size={9} /> };
+
+  // ── Avatar / Photo change ───── WARNING
+  if (/(avatar|picture|photo|image)/.test(a))
+    return { bg: C.warningBg, text: C.warningText, border: C.warningBorder, icon: <Image size={9} /> };
+
+  // ── Display name / Profile ──── WARNING
+  if (/(display.?name|name|profile)/.test(a))
+    return { bg: C.warningBg, text: C.warningText, border: C.warningBorder, icon: <User  size={9} /> };
+
+  // ── Fallback ─────────────────── NEUTRAL
+  return { bg: C.neutralBg, text: C.neutralText, border: C.neutralBorder, icon: <Shield size={9} /> };
 };
 
+/* ──────────────────────────────────────────────────────────────
+   ACTION BADGE — pill label on each table row
+────────────────────────────────────────────────────────────── */
 const ActionBadge = ({ action }) => {
   const { bg, text, border, icon } = actionCfg(action);
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 99, fontSize: 9, fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase', background: bg, color: text, border: `1px solid ${border}`, lineHeight: 1.4, maxWidth: '100%', overflow: 'hidden' }}>
+    <span style={{
+      display:       'inline-flex',
+      alignItems:    'center',
+      gap:           4,
+      padding:       '3px 8px',
+      borderRadius:  99,
+      fontSize:      9,
+      fontWeight:    800,
+      letterSpacing: '0.03em',
+      textTransform: 'uppercase',
+      background:    bg,
+      color:         text,
+      border:        `1px solid ${border}`,
+      lineHeight:    1.4,
+      maxWidth:      '100%',
+      overflow:      'hidden',
+    }}>
       <span style={{ flexShrink: 0 }}>{icon}</span>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action}</span>
     </span>
   );
 };
 
+/* ──────────────────────────────────────────────────────────────
+   ROLE CHIP — "Main" vs "Staff" tag under admin name
+   Uses primary tint for Main, neutral for Staff — matches dashboard
+────────────────────────────────────────────────────────────── */
 const RoleChip = ({ role }) => {
   const isMain = /main/i.test(role || '');
   return (
-    <span style={{ display: 'inline-block', fontSize: 8, fontWeight: 800, padding: '2px 6px', borderRadius: 99, textTransform: 'uppercase', letterSpacing: '0.05em', background: isMain ? '#EEF2FF' : '#F1F5F9', color: isMain ? '#4338CA' : '#64748B', border: `1px solid ${isMain ? '#C7D2FE' : '#E2E8F0'}`, whiteSpace: 'nowrap', marginTop: 3 }}>
+    <span style={{
+      display:       'inline-block',
+      fontSize:      8,
+      fontWeight:    800,
+      padding:       '2px 6px',
+      borderRadius:  99,
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      background:    isMain ? C.primaryLight  : C.neutralBg,
+      color:         isMain ? C.primaryText   : C.neutralText,
+      border:        `1px solid ${isMain ? C.primaryBorder : C.neutralBorder}`,
+      whiteSpace:    'nowrap',
+      marginTop:     3,
+    }}>
       {isMain ? 'Main' : 'Staff'}
     </span>
   );
 };
 
+/* ──────────────────────────────────────────────────────────────
+   FILTER DEFINITIONS
+────────────────────────────────────────────────────────────── */
 const FILTER_DEFS = [
   { key: 'all',     label: 'All'     },
   { key: 'today',   label: 'Today'   },
@@ -62,9 +223,24 @@ const FILTER_DEFS = [
 ];
 
 const filterMatch = (log, filter) => {
-  if (filter === 'all') return true;
+  if (filter === 'all')   return true;
   if (filter === 'today') return String(gf(log, 'created_at', 'time', 'timestamp')).startsWith(new Date().toISOString().slice(0, 10));
   return gf(log, 'action').toLowerCase().includes(filter.toLowerCase());
+};
+
+/**
+ * Returns the accent color for the count badge on each filter pill.
+ * Active pill overrides this with white-on-primary.
+ */
+const filterAccent = (key) => {
+  if (key === 'today')   return { bg: '#F0FDFA', text: '#0F766E', border: '#99F6E4' };
+  if (key === 'Login')   return { bg: C.successBg,  text: C.successText,  border: C.successBorder  };
+  if (key === 'Logout')  return { bg: C.neutralBg,  text: C.neutralText,  border: C.neutralBorder  };
+  if (key === 'Created') return { bg: C.infoBg,     text: C.infoText,     border: C.infoBorder     };
+  if (key === 'Deleted') return { bg: C.dangerBg,   text: C.dangerText,   border: C.dangerBorder   };
+  if (key === 'Updated') return { bg: C.warningBg,  text: C.warningText,  border: C.warningBorder  };
+  // "all" — neutral
+  return { bg: C.neutralBg, text: C.neutralText, border: C.neutralBorder };
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -99,49 +275,65 @@ export const LogsPanel = ({ showToast }) => {
     showToast('All logs cleared.', 'warning');
   };
 
+  // Log type badges use the existing info/danger/success tokens
   const typeStyle = {
-    FAILED:  { bg: '#FFF5F5', text: '#B91C1C', dot: '#EF4444' },
-    SYSTEM:  { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
-    SUCCESS: { bg: '#F0FDF4', text: '#15803D', dot: '#22C55E' },
+    FAILED:  { bg: C.dangerBg,  text: C.dangerText,  dot: C.dangerDot  },
+    SYSTEM:  { bg: C.infoBg,    text: C.infoText,     dot: C.infoDot    },
+    SUCCESS: { bg: C.successBg, text: C.successText,  dot: C.successDot },
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8' }}>{logs.length} records</span>
-          <button onClick={fetchLogs} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#3B82F6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-            <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />Refresh
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.textMuted }}>{logs.length} records</span>
+          <button
+            onClick={fetchLogs}
+            disabled={loading}
+            style={{ ...btnBase, color: C.infoDot, padding: 0 }}
+          >
+            <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />
+            Refresh
           </button>
         </div>
         {isMain && (
-          <button onClick={handleClear} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 900, color: '#EF4444', textTransform: 'uppercase', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+          <button
+            onClick={handleClear}
+            style={{ ...btnBase, color: C.dangerText, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', padding: 0 }}
+          >
             <Trash2 size={10} />Clear All
           </button>
         )}
       </div>
+
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
-          <RefreshCw size={20} style={{ color: '#CBD5E1', animation: 'spin 0.8s linear infinite' }} />
+          <RefreshCw size={20} style={{ color: C.neutralBorder, animation: 'spin 0.8s linear infinite' }} />
         </div>
       ) : logs.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#94A3B8', fontSize: 12, fontStyle: 'italic' }}>No logs yet.</div>
+        <div style={{ textAlign: 'center', padding: '40px 0', color: C.textMuted, fontSize: 12, fontStyle: 'italic' }}>
+          No logs yet.
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {logs.map((log, i) => {
             const s = typeStyle[log.type] || typeStyle.SUCCESS;
             return (
-              <div key={log.id ?? i} style={{ padding: '10px 12px', borderRadius: 12, background: s.bg, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div
+                key={log.id ?? i}
+                style={{ padding: '10px 12px', borderRadius: 12, background: s.bg, display: 'flex', flexDirection: 'column', gap: 4 }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: s.text }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, display: 'inline-block' }} />{log.type}
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, display: 'inline-block' }} />
+                    {log.type}
                   </span>
-                  <span style={{ fontSize: 9, color: '#94A3B8', fontWeight: 500 }}>
+                  <span style={{ fontSize: 9, color: C.textMuted, fontWeight: 500 }}>
                     {new Date(log.timestamp).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
                   </span>
                 </div>
-                <p style={{ fontSize: 11, fontWeight: 800, color: '#0F172A', margin: 0 }}>{log.user_name}</p>
-                <p style={{ fontSize: 10, color: '#64748B', margin: 0, lineHeight: 1.4 }}>{log.message}</p>
+                <p style={{ fontSize: 11, fontWeight: 800, color: C.textBase, margin: 0 }}>{log.user_name}</p>
+                <p style={{ fontSize: 10, color: C.textSub,  margin: 0, lineHeight: 1.4 }}>{log.message}</p>
               </div>
             );
           })}
@@ -194,52 +386,129 @@ export const AuditPanel = () => {
   const anyBusy  = pdfBusy || xlsxBusy;
 
   return (
-    /* key fix: overflow: hidden on wrapper kills the horizontal scrollbar */
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '65vh', overflow: 'hidden' }}>
 
-      {/* Toolbar */}
+      {/* ── Toolbar ─────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+
+        {/* Left: record count + refresh */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8' }}>{logs.length} records</span>
-          <button onClick={fetchAudit} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#3B82F6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-            <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />Refresh
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.textMuted }}>{logs.length} records</span>
+          <button
+            onClick={fetchAudit}
+            disabled={loading}
+            style={{ ...btnBase, color: C.infoDot, padding: 0 }}
+          >
+            <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />
+            Refresh
           </button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #E2E8F0', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
-          <button onClick={handleExportXLSX} disabled={anyBusy || logs.length === 0}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 10, fontWeight: 900, color: xlsxBusy ? '#94A3B8' : '#15803D', background: 'none', border: 'none', borderRight: '1px solid #E2E8F0', cursor: anyBusy || logs.length === 0 ? 'not-allowed' : 'pointer', opacity: anyBusy || logs.length === 0 ? 0.5 : 1 }}>
-            {xlsxBusy ? <><RefreshCw size={10} style={{ animation: 'spin 0.8s linear infinite' }} />Exporting…</> : <><FileSpreadsheet size={11} />Excel</>}
+
+        {/* Right: Export buttons — unified bordered group */}
+        <div style={{
+          display:    'flex',
+          alignItems: 'center',
+          border:     `1px solid ${C.neutralBorder}`,
+          borderRadius: 10,
+          overflow:   'hidden',
+          background: C.surface,
+        }}>
+          {/* Excel */}
+          <button
+            onClick={handleExportXLSX}
+            disabled={anyBusy || logs.length === 0}
+            style={{
+              ...btnBase,
+              color:        xlsxBusy ? C.textMuted : C.successText,
+              borderRight:  `1px solid ${C.neutralBorder}`,
+              opacity:      anyBusy || logs.length === 0 ? 0.45 : 1,
+              cursor:       anyBusy || logs.length === 0 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {xlsxBusy
+              ? <><RefreshCw size={10} style={{ animation: 'spin 0.8s linear infinite' }} />Exporting…</>
+              : <><FileSpreadsheet size={11} />Excel</>}
           </button>
-          <button onClick={handleExportPDF} disabled={anyBusy || logs.length === 0}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 10, fontWeight: 900, color: pdfBusy ? '#94A3B8' : '#1D4ED8', background: 'none', border: 'none', cursor: anyBusy || logs.length === 0 ? 'not-allowed' : 'pointer', opacity: anyBusy || logs.length === 0 ? 0.5 : 1 }}>
-            {pdfBusy ? <><RefreshCw size={10} style={{ animation: 'spin 0.8s linear infinite' }} />Generating…</> : <><Printer size={10} />PDF</>}
+
+          {/* PDF */}
+          <button
+            onClick={handleExportPDF}
+            disabled={anyBusy || logs.length === 0}
+            style={{
+              ...btnBase,
+              color:   pdfBusy ? C.textMuted : C.infoText,
+              opacity: anyBusy || logs.length === 0 ? 0.45 : 1,
+              cursor:  anyBusy || logs.length === 0 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {pdfBusy
+              ? <><RefreshCw size={10} style={{ animation: 'spin 0.8s linear infinite' }} />Generating…</>
+              : <><Printer size={10} />PDF</>}
           </button>
         </div>
       </div>
 
-      {/* Filter pills */}
+      {/* ── Filter pills ────────────────────────────────────── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0 }}>
         {FILTER_DEFS.map(({ key, label }) => {
           const cnt    = countFor(key);
           const active = filter === key;
-          const { bg, text, border } = actionCfg(key === 'all' || key === 'today' ? '' : key);
+          const accent = filterAccent(key);
+
           return (
-            <button key={key} onClick={() => setFilter(key)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', cursor: 'pointer', transition: 'all 0.15s', background: active ? '#0F172A' : key === 'today' ? '#F0FDFA' : bg, color: active ? '#fff' : key === 'today' ? '#0F766E' : text, border: `1.5px solid ${active ? '#0F172A' : key === 'today' ? '#99F6E4' : border}` }}>
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              style={{
+                display:       'flex',
+                alignItems:    'center',
+                gap:           5,
+                padding:       '4px 10px',
+                borderRadius:  99,
+                fontSize:      9,
+                fontWeight:    800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                cursor:        'pointer',
+                transition:    'all 0.15s',
+                fontFamily:    'inherit',
+                // Active → dashboard primary (dark navy); Inactive → semantic accent
+                background:    active ? C.primary     : accent.bg,
+                color:         active ? '#FFFFFF'     : accent.text,
+                border:        `1.5px solid ${active ? C.primary : accent.border}`,
+              }}
+            >
               {label}
-              <span style={{ background: active ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.07)', color: active ? '#fff' : 'inherit', borderRadius: 99, padding: '1px 5px', fontSize: 8, fontWeight: 900 }}>{cnt}</span>
+              <span style={{
+                background:   active ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.07)',
+                color:        active ? '#fff' : 'inherit',
+                borderRadius: 99,
+                padding:      '1px 5px',
+                fontSize:     8,
+                fontWeight:   900,
+              }}>
+                {cnt}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {/* Table — overflowX hidden, no horizontal scrollbar ever */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', borderRadius: 12, border: '1px solid #E2E8F0', background: '#fff' }}>
+      {/* ── Table ───────────────────────────────────────────── */}
+      <div style={{
+        flex:       1,
+        overflowY:  'auto',
+        overflowX:  'hidden',
+        borderRadius: 12,
+        border:     `1px solid ${C.neutralBorder}`,
+        background: C.surface,
+      }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-            <RefreshCw size={22} style={{ color: '#CBD5E1', animation: 'spin 0.8s linear infinite' }} />
+            <RefreshCw size={22} style={{ color: C.neutralBorder, animation: 'spin 0.8s linear infinite' }} />
           </div>
         ) : visible.length === 0 ? (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94A3B8', fontSize: 12, fontStyle: 'italic' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: C.textMuted, fontSize: 12, fontStyle: 'italic' }}>
             No entries match this filter.
           </div>
         ) : (
@@ -249,53 +518,78 @@ export const AuditPanel = () => {
               <col style={{ width: '26%' }} />
               <col style={{ width: '30%' }} />
             </colgroup>
+
+            {/* ── Sticky header — white text on dark navy ── */}
             <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
-              <tr style={{ background: '#0F172A' }}>
-                <th style={{ padding: '10px 12px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#64748B', textAlign: 'left',  borderBottom: '2px solid #1E293B' }}>Action</th>
-                <th style={{ padding: '10px 12px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#64748B', textAlign: 'left',  borderBottom: '2px solid #1E293B' }}>Admin</th>
-                <th style={{ padding: '10px 12px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#64748B', textAlign: 'right', borderBottom: '2px solid #1E293B' }}>Timestamp</th>
+              <tr style={{ background: C.primary }}>
+                {[
+                  { label: 'Action',    align: 'left'  },
+                  { label: 'Admin',     align: 'left'  },
+                  { label: 'Timestamp', align: 'right' },
+                ].map(({ label, align }) => (
+                  <th
+                    key={label}
+                    style={{
+                      padding:       '11px 14px',
+                      fontSize:      9,
+                      fontWeight:    800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      color:         '#FFFFFF',   // ✅ FIX: was C.neutralText (gray), now white
+                      textAlign:     align,
+                      borderBottom:  `2px solid ${C.primaryHover}`,
+                    }}
+                  >
+                    {label}
+                  </th>
+                ))}
               </tr>
             </thead>
+
             <tbody>
               {visible.map((entry, i) => {
                 const action = gf(entry, 'action');
                 const admin  = gf(entry, 'admin_name', 'admin', 'user');
                 const role   = gf(entry, 'admin_role', 'role');
                 const ts     = gf(entry, 'created_at', 'time', 'timestamp');
-                const rowBg  = i % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+
+                // Subtle alternating rows — both use the same neutral palette
+                const rowBg = i % 2 === 0 ? C.surface : C.surfaceAlt;
 
                 let tsDate = '—', tsTime = '';
                 try {
                   const d = new Date(ts);
                   if (!isNaN(d)) {
-                    tsDate = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
-                    tsTime = d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    tsDate = d.toLocaleDateString('en-PH',  { month: 'short', day: 'numeric', year: 'numeric' });
+                    tsTime = d.toLocaleTimeString('en-PH',  { hour: '2-digit', minute: '2-digit', hour12: true });
                   }
                 } catch {}
 
                 return (
-                  <tr key={entry.id ?? i}
+                  <tr
+                    key={entry.id ?? i}
                     style={{ background: rowBg, transition: 'background 0.1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#EEF2FF'}
-                    onMouseLeave={e => e.currentTarget.style.background = rowBg}>
-
-                    {/* Action */}
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9', overflow: 'hidden' }}>
+                    onMouseEnter={e => e.currentTarget.style.background = C.rowHover}
+                    onMouseLeave={e => e.currentTarget.style.background = rowBg}
+                  >
+                    {/* Action badge */}
+                    <td style={{ padding: '11px 14px', borderBottom: `1px solid ${C.neutralLine}`, overflow: 'hidden' }}>
                       <ActionBadge action={action} />
                     </td>
 
-                    {/* Admin + Role */}
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9', overflow: 'hidden' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{admin}</div>
+                    {/* Admin name + role chip */}
+                    <td style={{ padding: '11px 14px', borderBottom: `1px solid ${C.neutralLine}`, overflow: 'hidden' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMid, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {admin}
+                      </div>
                       <RoleChip role={role} />
                     </td>
 
-                    {/* Timestamp — two lines, right-aligned */}
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9', textAlign: 'right' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>{tsDate}</div>
-                      <div style={{ fontSize: 9,  fontWeight: 500, color: '#94A3B8',  whiteSpace: 'nowrap' }}>{tsTime}</div>
+                    {/* Timestamp */}
+                    <td style={{ padding: '11px 14px', borderBottom: `1px solid ${C.neutralLine}`, textAlign: 'right' }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: C.textMid,  whiteSpace: 'nowrap' }}>{tsDate}</div>
+                      <div style={{ fontSize:  9, fontWeight: 500, color: C.textMuted, whiteSpace: 'nowrap' }}>{tsTime}</div>
                     </td>
-
                   </tr>
                 );
               })}
@@ -304,9 +598,11 @@ export const AuditPanel = () => {
         )}
       </div>
 
-      {/* Footer */}
+      {/* ── Footer count ────────────────────────────────────── */}
       <div style={{ flexShrink: 0, textAlign: 'right' }}>
-        <span style={{ fontSize: 9, color: '#94A3B8', fontWeight: 600 }}>Showing {visible.length} of {logs.length} records</span>
+        <span style={{ fontSize: 9, color: C.textMuted, fontWeight: 600 }}>
+          Showing {visible.length} of {logs.length} records
+        </span>
       </div>
 
     </div>
@@ -324,13 +620,35 @@ const pwChecks = [
 ];
 
 const PasswordRequirements = ({ password }) => (
-  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', padding: '10px 12px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #F1F5F9' }}>
+  <div style={{
+    display:             'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap:                 '6px 16px',
+    padding:             '10px 12px',
+    background:          C.surfaceAlt,
+    borderRadius:        12,
+    border:              `1px solid ${C.neutralLine}`,
+  }}>
     {pwChecks.map(({ key, label, test }) => {
       const passed = test(password);
       return (
         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: passed ? '#22C55E' : '#CBD5E1', transition: 'background 0.2s' }} />
-          <span style={{ fontSize: 10, fontWeight: 600, color: passed ? '#16A34A' : '#94A3B8', transition: 'color 0.2s' }}>{label}</span>
+          <span style={{
+            width:        6,
+            height:       6,
+            borderRadius: '50%',
+            flexShrink:   0,
+            background:   passed ? C.successDot : C.neutralBorder,
+            transition:   'background 0.2s',
+          }} />
+          <span style={{
+            fontSize:   10,
+            fontWeight: 600,
+            color:      passed ? C.successText : C.textMuted,
+            transition: 'color 0.2s',
+          }}>
+            {label}
+          </span>
         </div>
       );
     })}
@@ -396,9 +714,9 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
     try {
       const token = localStorage.getItem('token');
       const res   = await fetch(`${BASE}/api/auth/admins`, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ username: form.username, password: form.password, role: 'Staff Admin' }),
+        body:    JSON.stringify({ username: form.username, password: form.password, role: 'Staff Admin' }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
@@ -411,29 +729,53 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }}>
+
+      {/* ── Tab switcher — matches dashboard primary ────────── */}
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {[{ k: 'list', label: `Admins (${admins.length})` }, { k: 'add', label: '+ Add New' }].map(({ k, label }) => (
-          <button key={k} onClick={() => { setView(k); setMsg({ text: '', type: '' }); setForm({ username: '', password: '' }); setShowPass(false); }}
-            style={{ flex: 1, padding: '8px 0', borderRadius: 12, fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s', background: k === view ? '#0F172A' : '#F1F5F9', color: k === view ? '#FFFFFF' : '#64748B', border: 'none' }}>
+          <button
+            key={k}
+            onClick={() => { setView(k); setMsg({ text: '', type: '' }); setForm({ username: '', password: '' }); setShowPass(false); }}
+            style={{
+              flex:         1,
+              padding:      '8px 0',
+              borderRadius: 12,
+              fontSize:     12,
+              fontWeight:   700,
+              cursor:       'pointer',
+              transition:   'all 0.15s',
+              fontFamily:   'inherit',
+              background:   k === view ? C.primary     : C.surfaceAlt,
+              color:        k === view ? '#FFFFFF'     : C.textSub,
+              border:       `1.5px solid ${k === view ? C.primary : C.neutralBorder}`,
+            }}
+          >
             {label}
           </button>
         ))}
       </div>
 
+      {/* ── Admin list ──────────────────────────────────────── */}
       {view === 'list' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8' }}>{admins.length} accounts</span>
-            <button onClick={fetchAdmins} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#3B82F6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />Refresh
+            <span style={{ fontSize: 10, fontWeight: 700, color: C.textMuted }}>{admins.length} accounts</span>
+            <button
+              onClick={fetchAdmins}
+              disabled={loading}
+              style={{ ...btnBase, color: C.infoDot, padding: 0 }}
+            >
+              <RefreshCw size={9} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />
+              Refresh
             </button>
           </div>
+
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
-              <RefreshCw size={18} style={{ color: '#CBD5E1', animation: 'spin 0.8s linear infinite' }} />
+              <RefreshCw size={18} style={{ color: C.neutralBorder, animation: 'spin 0.8s linear infinite' }} />
             </div>
           ) : admins.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '32px 0', color: '#94A3B8', fontSize: 12 }}>No admins found.</div>
+            <div style={{ textAlign: 'center', padding: '32px 0', color: C.textMuted, fontSize: 12 }}>No admins found.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {admins.map((a, i) => {
@@ -443,25 +785,62 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
                 const isSelf    = username === currentUser.name;
                 const isMainAcc = role === 'Main Admin';
                 return (
-                  <div key={a.admin_id ?? i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 12, border: '1px solid #F1F5F9', background: '#F8FAFC', gap: 8 }}>
+                  <div
+                    key={a.admin_id ?? i}
+                    style={{
+                      display:        'flex',
+                      alignItems:     'center',
+                      justifyContent: 'space-between',
+                      padding:        '10px 12px',
+                      borderRadius:   12,
+                      border:         `1px solid ${C.neutralLine}`,
+                      background:     C.surfaceAlt,
+                      gap:            8,
+                    }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 10, background: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
-                        {a.avatar ? <img src={a.avatar} alt={username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ShieldCheck size={14} color="#fff" />}
+                      <div style={{
+                        width:          32,
+                        height:         32,
+                        borderRadius:   10,
+                        background:     C.primary,
+                        display:        'flex',
+                        alignItems:     'center',
+                        justifyContent: 'center',
+                        flexShrink:     0,
+                        overflow:       'hidden',
+                      }}>
+                        {a.avatar
+                          ? <img src={a.avatar} alt={username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <ShieldCheck size={14} color="#fff" />}
                       </div>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#1E293B' }}>{label}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: C.textMid }}>{label}</span>
                           {isSelf && <Badge color="green">You</Badge>}
                         </div>
                         {a.display_name && a.display_name !== username && (
-                          <span style={{ fontSize: 9, color: '#94A3B8', fontWeight: 500, display: 'block' }}>@{username}</span>
+                          <span style={{ fontSize: 9, color: C.textMuted, fontWeight: 500, display: 'block' }}>@{username}</span>
                         )}
-                        <div style={{ marginTop: 3 }}><Badge color={isMainAcc ? 'blue' : 'slate'}>{role}</Badge></div>
+                        <div style={{ marginTop: 3 }}>
+                          {/* ✅ FIX: Badge now correctly renders blue for Main, slate for Staff */}
+                          <Badge color={isMainAcc ? 'blue' : 'slate'}>{role}</Badge>
+                        </div>
                       </div>
                     </div>
+
                     {!isSelf && !isMainAcc
-                      ? <button onClick={() => handleDelete(a)} style={{ padding: 6, borderRadius: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#F87171', flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.background = '#FFF5F5'} onMouseLeave={e => e.currentTarget.style.background = 'none'}><UserMinus size={13} /></button>
-                      : <span style={{ fontSize: 9, color: '#CBD5E1', fontWeight: 700, flexShrink: 0 }}>Protected</span>}
+                      ? (
+                        <button
+                          onClick={() => handleDelete(a)}
+                          style={{ padding: 6, borderRadius: 8, background: 'none', border: 'none', cursor: 'pointer', color: C.dangerDot, flexShrink: 0, transition: 'background 0.15s' }}
+                          onMouseEnter={e => e.currentTarget.style.background = C.dangerBg}
+                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                        >
+                          <UserMinus size={13} />
+                        </button>
+                      )
+                      : <span style={{ fontSize: 9, color: C.neutralBorder, fontWeight: 700, flexShrink: 0 }}>Protected</span>}
                   </div>
                 );
               })}
@@ -470,33 +849,92 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
         </>
       )}
 
+      {/* ── Add new admin form ───────────────────────────────── */}
       {view === 'add' && (
         <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'block', marginBottom: 6 }}>Username</label>
-            <input type="text" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} placeholder="Enter username" required />
+            <label style={{ fontSize: 10, fontWeight: 900, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.15em', display: 'block', marginBottom: 6 }}>
+              Username
+            </label>
+            <input
+              type="text"
+              value={form.username}
+              onChange={e => setForm({ ...form, username: e.target.value })}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: `1.5px solid ${C.neutralBorder}`, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              placeholder="Enter username"
+              required
+            />
           </div>
+
           <div>
-            <label style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'block', marginBottom: 6 }}>Password</label>
+            <label style={{ fontSize: 10, fontWeight: 900, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.15em', display: 'block', marginBottom: 6 }}>
+              Password
+            </label>
             <div style={{ position: 'relative' }}>
-              <input type={showPass ? 'text' : 'password'} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} style={{ width: '100%', padding: '10px 40px 10px 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} placeholder="Enter password" required />
-              <button type="button" onClick={() => setShowPass(p => !p)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={showPass ? 'text' : 'password'}
+                value={form.password}
+                onChange={e => setForm({ ...form, password: e.target.value })}
+                style={{ width: '100%', padding: '10px 40px 10px 12px', borderRadius: 12, border: `1.5px solid ${C.neutralBorder}`, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                placeholder="Enter password"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass(p => !p)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, display: 'flex', alignItems: 'center' }}
+              >
                 {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
           </div>
+
           {form.password.length > 0 && <PasswordRequirements password={form.password} />}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #F1F5F9' }}>
-            <ShieldCheck size={14} color="#3B82F6" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Role: <span style={{ color: '#3B82F6' }}>Staff Admin</span></span>
-            <span style={{ fontSize: 9, color: '#CBD5E1', marginLeft: 'auto' }}>(fixed)</span>
+
+          <div style={{
+            display:      'flex',
+            alignItems:   'center',
+            gap:          8,
+            padding:      '10px 12px',
+            background:   C.surfaceAlt,
+            borderRadius: 12,
+            border:       `1px solid ${C.neutralLine}`,
+          }}>
+            <ShieldCheck size={14} color={C.infoDot} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.textSub }}>
+              Role: <span style={{ color: C.infoText }}>Staff Admin</span>
+            </span>
+            <span style={{ fontSize: 9, color: C.neutralBorder, marginLeft: 'auto' }}>(fixed)</span>
           </div>
-          <button type="submit" disabled={busy || !allPassed || !form.username.trim()} style={{ padding: '12px 0', background: '#2563EB', color: '#fff', borderRadius: 12, fontWeight: 700, fontSize: 13, border: 'none', cursor: busy || !allPassed || !form.username.trim() ? 'not-allowed' : 'pointer', opacity: busy || !allPassed || !form.username.trim() ? 0.5 : 1, fontFamily: 'inherit' }}>
+
+          <button
+            type="submit"
+            disabled={busy || !allPassed || !form.username.trim()}
+            style={{
+              padding:      '12px 0',
+              background:   C.infoText,
+              color:        '#fff',
+              borderRadius: 12,
+              fontWeight:   700,
+              fontSize:     13,
+              border:       'none',
+              fontFamily:   'inherit',
+              cursor:       busy || !allPassed || !form.username.trim() ? 'not-allowed' : 'pointer',
+              opacity:      busy || !allPassed || !form.username.trim() ? 0.5 : 1,
+              transition:   'opacity 0.15s',
+            }}
+          >
             {busy ? 'Creating…' : 'Create Staff Admin'}
           </button>
-          {msg.text && <p style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: msg.type === 'success' ? '#2563EB' : '#EF4444', margin: 0 }}>{msg.text}</p>}
+
+          {msg.text && (
+            <p style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: msg.type === 'success' ? C.infoText : C.dangerText, margin: 0 }}>
+              {msg.text}
+            </p>
+          )}
         </form>
       )}
+
     </div>
   );
 };
