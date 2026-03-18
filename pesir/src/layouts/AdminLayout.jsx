@@ -455,18 +455,19 @@ const AdminLayout = () => {
                 </span>
               )}
 
-              {isProfileOpen && (
-                <ProfileDropdown
-                  currentUser={{ ...currentUser, displayName }}
-                  lastLogin={lastLogin}
-                  onOpenHub={openHub}
-                  onNotif={() => setShowNotif(true)}
-                  onSwitchAccount={handleSwitchAccount}
-                  onLogout={handleLogout}
-                  onConfirmMaintenance={confirmMaintenanceOn}
-                  onClose={() => setIsProfileOpen(false)}
-                />
-              )}
+                {isProfileOpen && (
+                  <ProfileDropdown
+                    currentUser={{ ...currentUser, displayName }}
+                    lastLogin={lastLogin}
+                    onOpenHub={openHub}
+                    onNotif={() => setShowNotif(true)}
+                    onSwitchAccount={handleSwitchAccount}
+                    onLogout={handleLogout}
+                    onToast={showToast}
+                    onConfirmMaintenance={confirmMaintenanceOn}
+                    onClose={() => setIsProfileOpen(false)}
+                  />
+                )}
             </div>
           </div>
         </header>

@@ -20,6 +20,7 @@ import { generateDashboardXLSX } from '../pdf/dashboardAnalyticsExport';
 import PdfExportModal from '../components/PdfExportModal';
 import { EmptyState, Card, Dropdown } from '../components/UIAtoms';
 import { detectAnomalies } from '../utils/AnomalyDetector';
+import { useConfirm, ConfirmModal, Toast } from '../components/GlobalConfirmModal';
 
 const API = 'http://localhost:5000/api/admin';
 
@@ -59,6 +60,7 @@ const getAuthHeaders = () => {
    ADMIN DASHBOARD
 ══════════════════════════════════════════════════════════════ */
 const AdminDashboard = () => {
+  const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
   const [kpis,         setKpis]         = useState(null);
   const [categories,   setCategories]   = useState([]);
   const [allRiskUsers, setAllRiskUsers] = useState([]);
@@ -172,13 +174,6 @@ const AdminDashboard = () => {
   }, [maint.active, maint.endsAt]);
 
 
-  const resumeMaintenance = () => {
-    localStorage.setItem('pesoai_maint', 'false');
-    localStorage.removeItem('pesoai_maint_until');
-    localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
-    window.dispatchEvent(new Event('pesoai_maint_change'));
-  };
-
   const updateMaintenanceTimer = () => {
     const v = Number(maintDurVal);
     if (!Number.isFinite(v) || v <= 0) return;
@@ -197,6 +192,34 @@ const AdminDashboard = () => {
       }).catch(() => {});
     }
     window.dispatchEvent(new Event('pesoai_maint_change'));
+  };
+
+  const handleApplyDuration = async () => {
+    const v = Number(maintDurVal);
+    if (!Number.isFinite(v) || v <= 0) {
+      showToast('Please set a valid duration first.', 'warning');
+      return;
+    }
+    if (maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)) {
+      showToast('Start the timer first before extending.', 'warning');
+      return;
+    }
+    const unitLabel = maintDurUnit === 'minutes' ? 'minutes' : 'hours';
+    const actionLabel = maintMode === 'extend' ? 'Extend' : 'Apply';
+    const ok = await confirm({
+      variant: 'maintenance',
+      title: `${actionLabel} Maintenance Duration?`,
+      subtitle: maintMode === 'extend'
+        ? `This will add ${v} ${unitLabel} to the current timer.`
+        : `This will set the maintenance timer to ${v} ${unitLabel}.`,
+      subject: `Duration: ${v} ${unitLabel}`,
+    });
+    if (!ok) return;
+    updateMaintenanceTimer();
+    showToast(
+      maintMode === 'extend' ? 'Maintenance time extended.' : 'Maintenance duration applied.',
+      'success'
+    );
   };
 
   const handleRefresh = async () => {
@@ -248,6 +271,8 @@ const AdminDashboard = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: "'Sora', 'Plus Jakarta Sans', sans-serif" }}>
+      <Toast toasts={toasts} />
+      <ConfirmModal modal={modal} onConfirm={handleConfirm} onCancel={handleCancel} />
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -379,25 +404,16 @@ const AdminDashboard = () => {
                     <option value="minutes">Minutes</option>
                     <option value="hours">Hours</option>
                   </select>
-                  <button
-                    onClick={updateMaintenanceTimer}
-                    disabled={maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)}
-                    className="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 text-[10px] font-black hover:bg-rose-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
+                    <button
+                      onClick={handleApplyDuration}
+                      disabled={maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 text-[10px] font-black hover:bg-rose-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                     Apply
                   </button>
                 </div>
               </div>
 
-              {/* Resume */}
-              <div className="flex items-center justify-end">
-                <button
-                  onClick={resumeMaintenance}
-                  className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-black hover:bg-rose-700 transition"
-                >
-                  Resume System
-                </button>
-              </div>
             </div>
           </div>
         )}

@@ -1,10 +1,10 @@
 // components/hub/ProfilePanels.jsx — PESO AI
 // Panels: ProfilePanel, SecurityPanel
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   User, Mail, Shield, Clock, Camera,
   Edit3, Save, XCircle, Info, Lock,
-  Eye, EyeOff, RefreshCw,
+  Eye, EyeOff, RefreshCw, CheckCircle2,
 } from 'lucide-react';
 import { ShieldCheck } from 'lucide-react';
 import { Badge } from '../UIAtoms';
@@ -196,6 +196,13 @@ export const SecurityPanel = ({ currentUser, showToast }) => {
   const [pw,   setPw]   = useState({ current: '', newPw: '', confirm: '' });
   const [show, setShow] = useState({ current: false, newPw: false, confirm: false });
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!saved) return;
+    const id = setTimeout(() => setSaved(false), 4000);
+    return () => clearTimeout(id);
+  }, [saved]);
 
   const handleSubmit = async e => {
     e.preventDefault();
@@ -213,6 +220,7 @@ export const SecurityPanel = ({ currentUser, showToast }) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Server error');
       showToast('Password changed successfully!', 'success');
+      setSaved(true);
       setPw({ current: '', newPw: '', confirm: '' });
     } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
     finally { setBusy(false); }
@@ -226,14 +234,25 @@ export const SecurityPanel = ({ currentUser, showToast }) => {
   ];
 
   return (
-    <div className="max-h-[65vh] overflow-y-auto pr-1">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="p-3 rounded-2xl bg-blue-50 border border-blue-100 flex items-start gap-3">
-          <Info size={14} className="text-blue-500 flex-shrink-0 mt-0.5" />
-          <p className="text-[11px] text-blue-600 font-medium leading-relaxed">
-            Password change is saved directly to the database with bcrypt hashing. Use 8+ characters.
-          </p>
-        </div>
+      <div className="max-h-[65vh] overflow-y-auto pr-1">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="p-3 rounded-2xl bg-blue-50 border border-blue-100 flex items-start gap-3">
+            <Info size={14} className="text-blue-500 flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] text-blue-600 font-medium leading-relaxed">
+              Password change is saved directly to the database with bcrypt hashing. Use 8+ characters.
+            </p>
+          </div>
+          {saved && (
+            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-start gap-3">
+              <CheckCircle2 size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-bold text-emerald-700">Password Updated</p>
+                <p className="text-[11px] text-emerald-600 font-medium leading-relaxed">
+                  Your new password is active now. You can continue using the dashboard.
+                </p>
+              </div>
+            </div>
+          )}
 
         {[{ key: 'current', label: 'Current Password' }, { key: 'newPw', label: 'New Password' }, { key: 'confirm', label: 'Confirm New Password' }].map(({ key, label }) => (
           <div key={key}>

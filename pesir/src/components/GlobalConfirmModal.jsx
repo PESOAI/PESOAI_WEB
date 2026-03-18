@@ -12,38 +12,44 @@ export const Toast = ({ toasts }) => (
   <>
     <style>{`
       @keyframes toastIn {
-        0%   { opacity: 0; transform: translateX(60px) scale(0.92); }
-        60%  { transform: translateX(-6px) scale(1.01); }
+        0%   { opacity: 0; transform: translateX(40px) scale(0.96); }
+        70%  { transform: translateX(-4px) scale(1.01); }
         100% { opacity: 1; transform: translateX(0) scale(1); }
       }
       @keyframes toastOut {
-        to { opacity: 0; transform: translateX(60px) scale(0.9); }
+        to { opacity: 0; transform: translateX(40px) scale(0.96); }
       }
     `}</style>
     <div className="fixed top-6 right-6 z-[300] flex flex-col gap-2.5 pointer-events-none">
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`flex items-center gap-3.5 pl-4 pr-5 py-3.5 rounded-2xl shadow-xl border pointer-events-auto
-            max-w-xs text-sm font-semibold tracking-tight
-            ${t.type === 'success' ? 'bg-white border-emerald-200 text-slate-800 shadow-emerald-100/60'
-            : t.type === 'error'   ? 'bg-white border-rose-200   text-slate-800 shadow-rose-100/60'
-            : t.type === 'warning' ? 'bg-white border-amber-200  text-slate-800 shadow-amber-100/60'
-            :                        'bg-white border-blue-200   text-slate-800 shadow-blue-100/60'}`}
+          className={`relative pointer-events-auto w-[320px] max-w-[85vw] overflow-hidden
+            rounded-2xl border shadow-xl backdrop-blur-xl px-4 py-3 flex items-start gap-3
+            ${t.type === 'success' ? 'bg-emerald-50/80 border-emerald-200 text-slate-800 shadow-emerald-100/60'
+            : t.type === 'error'   ? 'bg-rose-50/80 border-rose-200   text-slate-800 shadow-rose-100/60'
+            : t.type === 'warning' ? 'bg-amber-50/80 border-amber-200  text-slate-800 shadow-amber-100/60'
+            :                        'bg-blue-50/80 border-blue-200   text-slate-800 shadow-blue-100/60'}`}
           style={{ animation: 'toastIn 0.4s cubic-bezier(0.34,1.4,0.64,1) forwards' }}
         >
-          {/* Colored left bar */}
-          <span className={`absolute left-0 top-3 bottom-3 w-1 rounded-full
+          <span className={`absolute left-0 top-0 h-full w-1.5
             ${t.type === 'success' ? 'bg-emerald-400'
             : t.type === 'error'   ? 'bg-rose-400'
             : t.type === 'warning' ? 'bg-amber-400'
             :                        'bg-blue-400'}`}
-            style={{ position: 'relative', flexShrink: 0, width: 3, borderRadius: 9999 }}
           />
-          <span className="text-base flex-shrink-0">
-            {t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : t.type === 'warning' ? '⚠' : 'i'}
-          </span>
-          <span className="leading-snug">{t.message}</span>
+          <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0
+            ${t.type === 'success' ? 'bg-emerald-100 text-emerald-700'
+            : t.type === 'error'   ? 'bg-rose-100 text-rose-700'
+            : t.type === 'warning' ? 'bg-amber-100 text-amber-700'
+            :                        'bg-blue-100 text-blue-700'}`}>
+            <span className="text-[13px] font-black">
+              {t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : t.type === 'warning' ? '!' : 'i'}
+            </span>
+          </div>
+          <div className="text-[12.5px] font-semibold leading-snug">
+            {t.message}
+          </div>
         </div>
       ))}
     </div>

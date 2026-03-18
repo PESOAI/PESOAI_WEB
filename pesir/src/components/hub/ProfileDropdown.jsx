@@ -7,7 +7,7 @@
   } from 'lucide-react';
   import { ToggleSwitch, SectionLabel, Divider, DropItem, Badge } from '../UIAtoms';
 
-  export const ProfileDropdown = ({ currentUser, lastLogin, onOpenHub, onNotif, onSwitchAccount, onLogout, onClose, onConfirmMaintenance }) => {
+export const ProfileDropdown = ({ currentUser, lastLogin, onOpenHub, onNotif, onSwitchAccount, onLogout, onClose, onConfirmMaintenance, onToast }) => {
     const [maint, setMaint] = useState(() => localStorage.getItem('pesoai_maint') === 'true');
     const isMain = currentUser.role === 'Main Admin' || currentUser.role === 'Super Admin';
     const isSuper = currentUser.role === 'Super Admin' || currentUser.role === 'Main Admin';
@@ -15,6 +15,12 @@
     const setMaintenance = (next) => {
       setMaint(next);
       localStorage.setItem('pesoai_maint', next ? 'true' : 'false');
+      if (onToast) {
+        onToast(
+          next ? 'Maintenance mode is now ON. Staff and users will be blocked.' : 'Maintenance mode is now OFF. System resumed.',
+          next ? 'warning' : 'success'
+        );
+      }
       if (next) {
         localStorage.removeItem('pesoai_maint_until');
         const token = localStorage.getItem('token');
