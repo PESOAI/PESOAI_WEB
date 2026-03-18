@@ -96,6 +96,14 @@ function App() {
       localStorage.removeItem('pesoai_maint_until');
       localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
       window.dispatchEvent(new Event('pesoai_maint_change'));
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch('http://localhost:5000/api/maintenance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ active: false }),
+        }).catch(() => {});
+      }
       window.location.reload();
     };
     window.addEventListener('keydown', onKeyDown);

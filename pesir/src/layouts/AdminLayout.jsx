@@ -47,10 +47,6 @@ const AdminLayout = () => {
   const syncMaintenance = useCallback(() => {
     const active = localStorage.getItem('pesoai_maint') === 'true';
     let endsAt = Number(localStorage.getItem('pesoai_maint_until'));
-    if (active && !Number.isFinite(endsAt)) {
-      endsAt = Date.now() + 60_000;
-      localStorage.setItem('pesoai_maint_until', String(endsAt));
-    }
     setMaintenance({ active, endsAt: Number.isFinite(endsAt) ? endsAt : null });
     if (!active) {
       setMaintRemaining(null);
@@ -198,6 +194,14 @@ const AdminLayout = () => {
     setMaintenance({ active: false, endsAt: null });
     setMaintRemaining(null);
     forcedRef.current = false;
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('http://localhost:5000/api/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ active: false }),
+      }).catch(() => {});
+    }
   }, []);
 
   const confirmMaintenanceOn = useCallback(async () => {
