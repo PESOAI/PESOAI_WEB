@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Users, Activity, Wallet, ArrowDownCircle, PieChart as PieIcon,
   AlertTriangle, TrendingUp, TrendingDown, RefreshCw, FileText,
@@ -19,6 +19,7 @@ import { generateDashboardXLSX } from '../pdf/dashboardAnalyticsExport';
 
 import PdfExportModal from '../components/PdfExportModal';
 import { EmptyState, Card, Dropdown } from '../components/UIAtoms';
+import { detectAnomalies } from '../utils/AnomalyDetector';
 
 const API = 'http://localhost:5000/api/admin';
 
@@ -71,10 +72,20 @@ const AdminDashboard = () => {
   const [showPdf,      setShowPdf]      = useState(false);
   const [pdfGen,       setPdfGen]       = useState(false);
   const [xlsxGen,      setXlsxGen]      = useState(false);
+  const [maint,        setMaint]        = useState({ active: false, endsAt: null });
+  const [maintLeft,    setMaintLeft]    = useState(null);
+  const [maintDurVal,  setMaintDurVal]  = useState(1);
+  const [maintDurUnit, setMaintDurUnit] = useState('hours'); // 'minutes' | 'hours'
+  const [maintMode,    setMaintMode]    = useState('extend'); // 'set' | 'extend'
 
   const trendRef   = useRef(null);
   const riskRef    = useRef(null);
   const mountedRef = useRef(false);
+
+  const isMainOrSuper = (() => {
+    const u = JSON.parse(localStorage.getItem('currentUser')) || {};
+    return u.role === 'Main Admin' || u.role === 'Super Admin';
+  })();
 
   const fetchBase = useCallback(async (period = 'monthly') => {
     try {
@@ -130,6 +141,64 @@ const AdminDashboard = () => {
     fetchBase(trendFilter);
   }, [trendFilter, fetchTrend, fetchBase]);
 
+  useEffect(() => {
+    const sync = () => {
+      const active = localStorage.getItem('pesoai_maint') === 'true';
+      const endsAt = Number(localStorage.getItem('pesoai_maint_until'));
+      setMaint({ active, endsAt: Number.isFinite(endsAt) ? endsAt : null });
+    };
+    sync();
+    const onStorage = (e) => { if (e.key && e.key.startsWith('pesoai_maint')) sync(); };
+    const onLocal = () => sync();
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('pesoai_maint_change', onLocal);
+    const poll = setInterval(sync, 1500);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('pesoai_maint_change', onLocal);
+      clearInterval(poll);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!maint.active || !maint.endsAt) { setMaintLeft(null); return; }
+    const tick = () => {
+      const sec = Math.max(0, Math.ceil((maint.endsAt - Date.now()) / 1000));
+      setMaintLeft(sec);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [maint.active, maint.endsAt]);
+
+
+  const resumeMaintenance = () => {
+    localStorage.setItem('pesoai_maint', 'false');
+    localStorage.removeItem('pesoai_maint_until');
+    localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
+    window.dispatchEvent(new Event('pesoai_maint_change'));
+  };
+
+  const updateMaintenanceTimer = () => {
+    const v = Number(maintDurVal);
+    if (!Number.isFinite(v) || v <= 0) return;
+    const ms = maintDurUnit === 'minutes' ? v * 60 * 1000 : v * 60 * 60 * 1000;
+    if (maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)) return;
+    const base = maintMode === 'extend' && Number.isFinite(maint.endsAt) ? maint.endsAt : Date.now();
+    const endsAt = base + ms;
+    localStorage.setItem('pesoai_maint_until', String(endsAt));
+    localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('http://localhost:5000/api/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ active: true, endsAt }),
+      }).catch(() => {});
+    }
+    window.dispatchEvent(new Event('pesoai_maint_change'));
+  };
+
   const handleRefresh = async () => {
     setInitLoading(true);
     await Promise.all([fetchBase(trendFilter), fetchTrend(trendFilter)]);
@@ -139,7 +208,9 @@ const AdminDashboard = () => {
   const handleExportPdf = async (selected) => {
     setPdfGen(true);
     try {
-      await generatePDF(selected, { kpis, allRiskUsers, trendFilter, trend, savingsDist, categories }, logo);
+      if (selected.length > 0) {
+        await generatePDF(selected, { kpis, allRiskUsers, trendFilter, trend, savingsDist, categories }, logo);
+      }
     } catch (e) { console.error('PDF error:', e); }
     setPdfGen(false);
     setShowPdf(false);
@@ -158,6 +229,12 @@ const AdminDashboard = () => {
   const top6         = categories.slice(0, 6);
   const top6Total    = top6.reduce((s, c) => s + Number(c.total_spent || 0), 0);
   const fullName     = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+  const anomalies = detectAnomalies({
+    transactions: kpis?.recent_transactions ?? [],
+    expensesTrend: trend,
+    logins: kpis?.recent_logins ?? [],
+    authorizedIps: kpis?.authorized_ips ?? [],
+  });
 
   if (initLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#F8FAFC' }}>
@@ -200,6 +277,12 @@ const AdminDashboard = () => {
             <div style={{ fontSize: 10, fontWeight: 800, color: '#6366F1', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 4 }}>Admin Panel</div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.03em', lineHeight: 1.2 }}>System Monitoring</h1>
             {lastUpdate && <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginTop: 4 }}>Last updated at {lastUpdate}</p>}
+            {anomalies.hasAnomalies && (
+              <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#FFF5F5', border: '1px solid #FECACA', color: '#B91C1C', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                <AlertTriangle size={10} />
+                High-Risk Alert
+              </div>
+            )}
           </div>
 
           {/* ── ACTION BUTTONS ── */}
@@ -234,6 +317,91 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {maint.active && isMainOrSuper && (
+          <div className="rounded-2xl border border-rose-100 bg-rose-50/60 px-5 py-4 flex flex-col gap-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600">
+                  <AlertTriangle size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-400">Maintenance Live</p>
+                  <p className="text-sm font-bold text-rose-700">System paused for Staff Admins & users</p>
+                </div>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-white border border-rose-100 text-rose-600 text-xs font-black">
+                {maintLeft != null ? `TIME LEFT ${Math.floor(maintLeft / 3600)}h ${Math.floor((maintLeft % 3600) / 60)}m` : 'TIME LEFT —'}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-center">
+              {/* Step 1: Choose action */}
+              <div className="flex flex-col gap-2 px-3 py-2 rounded-xl bg-white border border-rose-100">
+                <span className="text-[10px] font-black uppercase tracking-wider text-rose-400"> Action</span>
+                <div className="flex items-center gap-2">
+                  {['set','extend'].map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setMaintMode(m)}
+                      disabled={m === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)}
+                      className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border transition ${
+                        maintMode === m
+                          ? 'bg-rose-600 text-white border-rose-600'
+                          : 'bg-white text-rose-600 border-rose-200'
+                      } ${m === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-rose-50'}`}
+                    >
+                      {m === 'set' ? 'Set Time' : 'Extend Time'}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[10px] text-rose-300 font-semibold">
+                  {(!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0) ? 'Extend disabled until timer starts.' : ' '}
+                </span>
+              </div>
+
+              {/* Step 2: Duration */}
+              <div className="flex flex-col gap-2 px-3 py-2 rounded-xl bg-white border border-rose-100">
+                <span className="text-[10px] font-black uppercase tracking-wider text-rose-400"> Duration</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={maintDurVal}
+                    onChange={e => setMaintDurVal(Number(e.target.value))}
+                    className="w-16 px-2 py-1 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  <select
+                    value={maintDurUnit}
+                    onChange={e => setMaintDurUnit(e.target.value)}
+                    className="px-2 py-1 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Hours</option>
+                  </select>
+                  <button
+                    onClick={updateMaintenanceTimer}
+                    disabled={maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)}
+                    className="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 text-[10px] font-black hover:bg-rose-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+
+              {/* Resume */}
+              <div className="flex items-center justify-end">
+                <button
+                  onClick={resumeMaintenance}
+                  className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-black hover:bg-rose-700 transition"
+                >
+                  Resume System
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── KPI CARDS ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
           {[
@@ -243,7 +411,7 @@ const AdminDashboard = () => {
             { title: 'Avg. Expenses', value: peso(kpis?.avg_expenses),     icon: <ArrowDownCircle size={15}/>, accent: '#EF4444', bg: '#FFF5F5', trend: 'down' },
             { title: 'Avg. Savings',  value: peso(kpis?.avg_savings),      icon: <PieIcon size={15}/>,         accent: '#F59E0B', bg: '#FFFBEB', trend: 'up' },
           ].map(({ title, value, icon, accent, bg, trend: tdir }) => (
-            <Card key={title} style={{ padding: '18px 20px' }}>
+            <Card key={title} style={{ padding: '18px 20px', position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 11, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span style={{ color: accent }}>{icon}</span>
@@ -254,6 +422,12 @@ const AdminDashboard = () => {
                   </div>
                 )}
               </div>
+              {anomalies.hasAnomalies && title === 'Total Users' && (
+                <div style={{ position: 'absolute', top: 10, right: 10, padding: '3px 8px', borderRadius: 999, background: '#FFF5F5', border: '1px solid #FECACA', color: '#B91C1C', fontSize: 8.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <AlertTriangle size={9} />
+                  High-Risk
+                </div>
+              )}
               <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{title}</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em' }}>{value}</div>
               <div style={{ marginTop: 12, height: 3, borderRadius: 99, background: bg }}>

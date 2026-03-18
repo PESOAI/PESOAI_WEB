@@ -1,10 +1,11 @@
-// pages/UserManagement.jsx — PESO AI
+﻿// pages/UserManagement.jsx — PESO AI
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, MapPin, Mail, Clock, Calendar,
   CheckCircle, XCircle, Keyboard, FileText, FileSpreadsheet,
 } from 'lucide-react';
 import { ConfirmModal, Toast, useConfirm } from '../components/GlobalConfirmModal';
+import { StaffActivityMonitor } from '../components/hub/StaffActivityMonitor';
 import { generateUsersPDF  } from '../pdf/usersPDF';
 import { generateUsersXLSX } from '../pdf/usersExport';
 import logo from '../assets/logo.png';
@@ -17,6 +18,8 @@ const UserManagement = () => {
   const [pdfBusy,      setPdfBusy]      = useState(false);
   const [xlsxBusy,     setXlsxBusy]    = useState(false);
   const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
+  const currentUser = JSON.parse(localStorage.getItem('currentUser')) || {};
+  const canManageUsers = currentUser.role === 'Main Admin' || currentUser.role === 'Super Admin';
 
   const searchInputRef = useRef(null);
 
@@ -30,8 +33,11 @@ const UserManagement = () => {
       if (e.key === 'Escape') { setSearchTerm(''); setFilterStatus('All'); }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
+
 
   const fetchUsers = async () => {
     try {
@@ -57,6 +63,7 @@ const UserManagement = () => {
   };
 
   const handleStatusChange = async (userId, currentOnboarding, userName) => {
+    if (!canManageUsers) return;
     const newOnboarding = !currentOnboarding;
     const isDisabling   = !newOnboarding;
     const ok = await confirm({
@@ -174,6 +181,11 @@ const UserManagement = () => {
               <span className="flex items-center gap-1.5 px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-[10px] font-bold uppercase tracking-wider">
                 <Keyboard size={12} /> Admin Mode
               </span>
+              {!canManageUsers && (
+                <span className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-500 rounded-md text-[10px] font-bold uppercase tracking-wider">
+                  View Only
+                </span>
+              )}
             </div>
           </div>
 
@@ -217,6 +229,13 @@ const UserManagement = () => {
             </div>
           </div>
         </div>
+
+        {/* ── STAFF ACTIVITY MONITOR ─────────────────────────── */}
+        {currentUser.role === 'Super Admin' && (
+          <>
+            <StaffActivityMonitor />
+          </>
+        )}
 
         {/* ── FILTER PILLS ───────────────────────────────────── */}
         <div className="flex items-center gap-3 mb-5">
@@ -298,9 +317,16 @@ const UserManagement = () => {
                       <td className="px-6 py-5 text-center">
                         <button
                           onClick={() => handleStatusChange(user.id, user.onboarding_completed, name)}
-                          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm border ${isAct ? 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-md'}`}
+                          disabled={!canManageUsers}
+                          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm border ${
+                            (!canManageUsers)
+                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                              : isAct
+                                ? 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50'
+                                : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-md'
+                          }`}
                         >
-                          {isAct ? <><XCircle size={14} /> Disable</> : <><CheckCircle size={14} /> Enable</>}
+                          {!canManageUsers ? 'Restricted' : (isAct ? <><XCircle size={14} /> Disable</> : <><CheckCircle size={14} /> Enable</>)}
                         </button>
                       </td>
 

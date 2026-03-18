@@ -876,7 +876,30 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
             </button>
 
             {msg.text && (
-              <p style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: msg.type === 'success' ? C.infoText : C.dangerText, margin: 0 }}>{msg.text}</p>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 12px',
+                borderRadius: 12,
+                border: `1.5px solid ${msg.type === 'success' ? C.infoBorder : C.dangerBorder}`,
+                background: msg.type === 'success' ? C.infoBg : C.dangerBg,
+              }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: 9,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: msg.type === 'success' ? '#DBEAFE' : '#FEE2E2',
+                  border: `1px solid ${msg.type === 'success' ? C.infoBorder : C.dangerBorder}`,
+                  color: msg.type === 'success' ? C.infoText : C.dangerText,
+                  flexShrink: 0,
+                }}>
+                  {msg.type === 'success' ? <ShieldCheck size={14} /> : <AlertTriangle size={14} />}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.12em', textTransform: 'uppercase', color: msg.type === 'success' ? C.infoText : C.dangerText }}>
+                    {msg.type === 'success' ? 'Staff Created' : 'Action Failed'}
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textSub, marginTop: 2 }}>{msg.text}</div>
+                </div>
+              </div>
             )}
           </form>
         )}

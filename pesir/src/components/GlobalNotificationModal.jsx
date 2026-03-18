@@ -56,7 +56,7 @@ function useClickOutside(ref, cb) {
   }, [ref, cb]);
 }
 
-const GlobalNotificationModal = ({ open, onClose }) => {
+const GlobalNotificationModal = ({ open, onClose, maintenance }) => {
   const [type,         setType]         = useState(NOTIF_TYPES[0]);
   const [message,      setMessage]      = useState('');
   const [sendMode,     setSendMode]     = useState('now');
@@ -67,12 +67,20 @@ const GlobalNotificationModal = ({ open, onClose }) => {
   const [history,      setHistory]      = useState([]);
 
   const panelRef = useRef(null);
-  useClickOutside(panelRef, () => { if (status !== 'loading') onClose(); });
+  const maintenanceActive = !!maintenance?.active;
+  const isSuperAdmin = maintenance?.role === 'Super Admin' || maintenance?.role === 'Main Admin';
+  const isStaffAdmin = maintenance?.role === 'Staff Admin';
+  const canOverride = isSuperAdmin && typeof maintenance?.onOverride === 'function';
+  useClickOutside(panelRef, () => {
+    if (maintenanceActive) return;
+    if (status !== 'loading') onClose();
+  });
 
   useEffect(() => {
-    document.body.style.overflow = open ? 'hidden' : '';
+    const lock = open || (maintenanceActive && !isSuperAdmin);
+    document.body.style.overflow = lock ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [open]);
+  }, [open, maintenanceActive, isSuperAdmin]);
 
   useEffect(() => {
     if (open) {
@@ -116,7 +124,80 @@ const GlobalNotificationModal = ({ open, onClose }) => {
     }
   }, [isValid, status, type, message, sendMode, scheduleDate, scheduleTime, onClose]);
 
-  if (!open) return null;
+  if (!open && (!maintenanceActive || isSuperAdmin)) return null;
+
+  if (maintenanceActive && !isSuperAdmin) {
+    const remaining = Math.max(0, Number(maintenance?.secondsLeft || 0));
+    const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const ss = String(remaining % 60).padStart(2, '0');
+    const canLogout = typeof maintenance?.onForceLogout === 'function';
+    return (
+      <>
+        <style>{`
+          .mnt-overlay {
+            position: fixed; inset: 0; z-index: 15;
+            display: flex; align-items: center; justify-content: center; padding: 16px;
+            background: rgba(14, 42, 71, 0.45);
+            backdrop-filter: blur(10px);
+          }
+          .mnt-panel {
+            width: 100%; max-width: 460px;
+            background: #fff; border-radius: 24px; overflow: hidden;
+            border: 1px solid #FECACA;
+            box-shadow: 0 24px 60px rgba(14,42,71,0.18), 0 4px 16px rgba(14,42,71,0.06);
+          }
+        `}</style>
+        <div className="mnt-overlay">
+          <div className="mnt-panel">
+            <div style={{ padding: '20px 24px', background: 'linear-gradient(135deg, #FFF5F5 0%, #FFE4E6 100%)', borderBottom: '1px solid #FECACA', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: '#FEE2E2', border: '1px solid #FECACA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <AlertCircle size={18} color="#EF4444" />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#F87171' }}>Maintenance Mode</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#7F1D1D' }}>System pause in progress</div>
+              </div>
+            </div>
+            <div style={{ padding: '22px 24px', background: '#FFF7F7' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#7F1D1D', margin: 0 }}>
+                The system will log out all active users for maintenance. Please save your work.
+              </p>
+              <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderRadius: 12, border: '1px solid #FECACA', background: '#fff' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#991B1B', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Auto-Logout In</span>
+                <span style={{ fontSize: 18, fontWeight: 900, color: '#EF4444', letterSpacing: '0.08em' }}>{mm}:{ss}</span>
+              </div>
+            </div>
+            <div style={{ padding: '14px 24px 18px', borderTop: '1px solid #FEE2E2', background: '#FFFDFD', textAlign: 'center' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#FCA5A5', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                Please wait - logout is mandatory
+              </span>
+              {canLogout && (
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    onClick={maintenance.onForceLogout}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: '1px solid #FECACA',
+                      background: '#FFF1F2',
+                      color: '#B91C1C',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Logout Now
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -126,7 +207,7 @@ const GlobalNotificationModal = ({ open, onClose }) => {
         .pn-modal * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
 
         .pn-overlay {
-          position: fixed; inset: 0; z-index: 9999;
+          position: fixed; inset: 0; z-index: 15;
           display: flex; align-items: center; justify-content: center; padding: 16px;
           background: rgba(14, 42, 71, 0.35);
           backdrop-filter: blur(10px);

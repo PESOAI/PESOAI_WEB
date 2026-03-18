@@ -1,6 +1,7 @@
 // src/App.jsx – PESO AI (JWT Protected Routes) - FIXED
 
 import React, { useEffect, useState } from "react";
+import { initEmergencyResume } from "./utils/EmergencyResume";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 import LandingPage from "./pages/LandingPage";
@@ -80,6 +81,27 @@ const ProtectedRoute = ({ children }) => {
 
 // ─────────────────────────────────────────────────────────────
 function App() {
+  useEffect(() => {
+    const cleanup = initEmergencyResume();
+    return () => cleanup && cleanup();
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!(e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === 'u')) return;
+      const currentUser = JSON.parse(localStorage.getItem('currentUser')) || {};
+      if (!(currentUser.role === 'Super Admin' || currentUser.role === 'Main Admin')) return;
+      e.preventDefault();
+      localStorage.setItem('pesoai_maint', 'false');
+      localStorage.removeItem('pesoai_maint_until');
+      localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
+      window.dispatchEvent(new Event('pesoai_maint_change'));
+      window.location.reload();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   return (
     <Router>
       <Routes>

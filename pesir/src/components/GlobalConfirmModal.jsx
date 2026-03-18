@@ -86,6 +86,14 @@ const VARIANTS = {
     confirmText: 'Yes, Enable',
     badgeBg:     'bg-emerald-50 text-emerald-700 border-emerald-200',
   },
+  maintenance: {
+    icon:        <ShieldOff size={26} />,
+    iconBg:      'bg-rose-500',
+    iconColor:   'text-white',
+    confirmBg:   'bg-rose-500 hover:bg-rose-600',
+    confirmText: 'Activate',
+    badgeBg:     'bg-rose-50 text-rose-700 border-rose-200',
+  },
 };
 
 // ══════════════════════════════════════════════════════════════

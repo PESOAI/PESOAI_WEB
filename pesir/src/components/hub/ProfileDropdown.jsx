@@ -1,5 +1,5 @@
   // components/hub/ProfileDropdown.jsx — PESO AI
-  import React, { useState, useEffect } from 'react';
+  import React, { useState } from 'react';
   import {
     User, Settings, Activity, Wrench, Shield,
     UserCheck, Smartphone, UserPlus, Bell, LogOut,
@@ -7,11 +7,63 @@
   } from 'lucide-react';
   import { ToggleSwitch, SectionLabel, Divider, DropItem, Badge } from '../UIAtoms';
 
-  export const ProfileDropdown = ({ currentUser, lastLogin, onOpenHub, onNotif, onSwitchAccount, onLogout, onClose }) => {
+  export const ProfileDropdown = ({ currentUser, lastLogin, onOpenHub, onNotif, onSwitchAccount, onLogout, onClose, onConfirmMaintenance }) => {
     const [maint, setMaint] = useState(() => localStorage.getItem('pesoai_maint') === 'true');
-    const isMain = currentUser.role === 'Main Admin';
+    const isMain = currentUser.role === 'Main Admin' || currentUser.role === 'Super Admin';
+    const isSuper = currentUser.role === 'Super Admin' || currentUser.role === 'Main Admin';
 
-    useEffect(() => { localStorage.setItem('pesoai_maint', maint); }, [maint]);
+    const setMaintenance = (next) => {
+      setMaint(next);
+      localStorage.setItem('pesoai_maint', next ? 'true' : 'false');
+      if (next) {
+        localStorage.removeItem('pesoai_maint_until');
+        const token = localStorage.getItem('token');
+        if (token) {
+          fetch('http://localhost:5000/api/maintenance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ active: true, endsAt: null }),
+          }).catch(() => {});
+        }
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            const bc = new BroadcastChannel('pesoai_maint');
+            bc.postMessage({ active: true, endsAt: null });
+            bc.close();
+          } catch {}
+        }
+      } else {
+        localStorage.removeItem('pesoai_maint_until');
+        const token = localStorage.getItem('token');
+        if (token) {
+          fetch('http://localhost:5000/api/maintenance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ active: false }),
+          }).catch(() => {});
+        }
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            const bc = new BroadcastChannel('pesoai_maint');
+            bc.postMessage({ active: false });
+            bc.close();
+          } catch {}
+        }
+      }
+      localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
+      window.dispatchEvent(new Event('pesoai_maint_change'));
+    };
+
+    const requestToggle = async (next) => {
+      if (!isSuper) return;
+      if (next && onConfirmMaintenance) {
+        const ok = await onConfirmMaintenance();
+        if (!ok) return;
+        setMaintenance(next);
+        return;
+      }
+      setMaintenance(next);
+    };
 
     const go = view => { onOpenHub(view); onClose(); };
 
@@ -58,18 +110,20 @@
 
               {/* Maintenance Mode toggle */}
               <div
-                className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-all cursor-pointer"
-                onClick={() => setMaint(m => !m)}
+                className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${isSuper ? 'hover:bg-slate-50 cursor-pointer' : 'opacity-60 cursor-not-allowed'}`}
+                onClick={() => { if (isSuper) requestToggle(!maint); }}
               >
                 <div className="flex items-center gap-3">
                   <Wrench size={15} className={maint ? 'text-amber-500' : 'text-slate-400'} />
                   <div>
                     <p className={`text-sm font-semibold leading-tight ${maint ? 'text-amber-600' : 'text-slate-700'}`}>Maintenance Mode</p>
                     {maint && <p className="text-[9px] font-bold text-amber-500 uppercase tracking-wider">Active — app paused</p>}
+                    {!isSuper && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Main/Super only</p>}
                   </div>
                 </div>
-                <ToggleSwitch enabled={maint} onChange={setMaint} colorOn="bg-amber-500" />
+                <ToggleSwitch enabled={maint} onChange={(v) => { if (isSuper) requestToggle(v); }} colorOn="bg-amber-500" />
               </div>
+
 
               <Divider />
               <SectionLabel>Admin Controls</SectionLabel>

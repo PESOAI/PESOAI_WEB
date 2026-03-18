@@ -507,6 +507,141 @@ export const generatePDF = async (selected, dashboardData, logoSrc) => {
   stampFooters(doc, doc.internal.getNumberOfPages());
   doc.save(`PESO_AI_Analytics_${now.toISOString().slice(0, 10)}.pdf`);
 };
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   EXECUTIVE SUMMARY (ONE-PAGE)
+═══════════════════════════════════════════════════════════════════════════════ */
+export const generateExecutiveSummaryPDF = async (dashboardData, logoSrc) => {
+  await loadjsPDF();
+  const logoB64 = await getPDFLogoBase64(logoSrc);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+  const period  = (dashboardData.trendFilter || 'monthly').charAt(0).toUpperCase()
+                + (dashboardData.trendFilter || 'monthly').slice(1);
+
+  drawPageHeader(doc, { dateStr, period });
+
+  let y = PAGE_TOP + 12;
+  setFont(doc, 'bold', 16, C.textDark);
+  doc.text('Executive Summary', ML, y);
+  setFont(doc, 'normal', 8.5, C.textMuted);
+  doc.text(`Generated ${dateStr} · ${timeStr}`, ML, y + 14);
+
+  // KPI cards
+  const k = dashboardData.kpis || {};
+  const statY = y + 26;
+  const cardW = CW / 3;
+  const stats = [
+    { label: 'Avg. Income',   value: fmtPDF(k.avg_income),   color: C.green },
+    { label: 'Avg. Expenses', value: fmtPDF(k.avg_expenses), color: C.red   },
+    { label: 'Avg. Savings',  value: fmtPDF(k.avg_savings),  color: C.indigo },
+  ];
+  stats.forEach((s, i) => {
+    const cx = ML + i * cardW;
+    doc.setFillColor(...C.offWhite);
+    doc.roundedRect(cx + 2, statY, cardW - 4, 42, 6, 6, 'F');
+    doc.setFillColor(...s.color);
+    doc.rect(cx + 2, statY, 4, 42, 'F');
+    setFont(doc, 'bold', 14, s.color);
+    doc.text(String(s.value), cx + cardW / 2 + 2, statY + 24, { align: 'center' });
+    setFont(doc, 'normal', 7.5, C.textMuted);
+    doc.text(s.label.toUpperCase(), cx + cardW / 2 + 2, statY + 35, { align: 'center' });
+  });
+
+  const cur = makeCur(statY + 56);
+  const ctx = { dateStr, period };
+
+  // Income & Savings Snapshot
+  drawSection(doc, cur, 'Income & Savings Snapshot', ctx);
+  const avgIncome = Number(k.avg_income || 0);
+  const avgSavings = Number(k.avg_savings || 0);
+  const avgExpenses = Number(k.avg_expenses || 0);
+  const savingsRate = avgIncome > 0 ? ((avgSavings / avgIncome) * 100).toFixed(1) + '%' : 'N/A';
+  const expenseRatio = avgIncome > 0 ? ((avgExpenses / avgIncome) * 100).toFixed(1) + '%' : 'N/A';
+  drawTable(doc, cur, [
+    { label: 'METRIC', width: CW * 0.40 },
+    { label: 'VALUE',  width: CW * 0.60, align: 'right' },
+  ], [
+    ['Average Income',  fmtPDF(k.avg_income)],
+    ['Average Expenses',fmtPDF(k.avg_expenses)],
+    ['Average Savings', fmtPDF(k.avg_savings)],
+    ['Savings Rate',    savingsRate],
+    ['Expense Ratio',   expenseRatio],
+  ], { ctx });
+
+  // Income vs Expenses (last 3)
+  const trend = Array.isArray(dashboardData.trend) ? dashboardData.trend : [];
+  const tail3 = trend.slice(-3);
+  if (tail3.length > 0) {
+    drawSection(doc, cur, 'Income vs Expenses (Last 3)', ctx);
+    drawTable(doc, cur, [
+      { label: 'PERIOD',        width: CW * 0.34 },
+      { label: 'AVG. INCOME',   width: CW * 0.33, align: 'right' },
+      { label: 'AVG. EXPENSES', width: CW * 0.33, align: 'right' },
+    ], tail3.map(d => [String(d.label || '-'), fmtPDF(d.avg_income), fmtPDF(d.avg_expenses)]), { ctx });
+  }
+
+  // User Growth
+  const usersFromTrend = trend
+    .map(d => Number(d.user_count ?? d.total_users ?? d.users))
+    .filter(v => Number.isFinite(v));
+  const lastTrendUsers = usersFromTrend.length > 0 ? usersFromTrend[usersFromTrend.length - 1] : 0;
+  const currentUsers = Number.isFinite(Number(k.total_users)) ? Number(k.total_users) : (lastTrendUsers || 0);
+  const prevUsersRaw = Number(k.prev_total_users ?? k.total_users_prev ?? k.total_users_previous ?? NaN);
+  const prevUsers = Number.isFinite(prevUsersRaw) ? prevUsersRaw : (usersFromTrend[0] || NaN);
+  const growthPct = prevUsers && Number.isFinite(prevUsers) && prevUsers > 0
+    ? (((currentUsers - prevUsers) / prevUsers) * 100).toFixed(1) + '%'
+    : 'N/A';
+  drawSection(doc, cur, 'User Growth', ctx);
+  drawTable(doc, cur, [
+    { label: 'METRIC', width: CW * 0.40 },
+    { label: 'VALUE',  width: CW * 0.60, align: 'right' },
+  ], [
+    ['Total Users', String(currentUsers || 0)],
+    ['Active Users %', `${k.pct_active ?? 0}%`],
+    ['Growth Rate', growthPct],
+  ], { ctx });
+
+  // Top Spending Categories (Top 3)
+  const cats = Array.isArray(dashboardData.categories) ? dashboardData.categories : [];
+  if (cats.length > 0) {
+    const top3 = cats.slice(0, 3);
+    const total = top3.reduce((s, c) => s + Number(c.total_spent || 0), 0);
+    drawSection(doc, cur, 'Top Spending Categories (Top 3)', ctx);
+    drawTable(doc, cur, [
+      { label: 'CATEGORY', width: CW * 0.50 },
+      { label: 'TOTAL',    width: CW * 0.30, align: 'right' },
+      { label: 'SHARE',    width: CW * 0.20, align: 'right' },
+    ], top3.map(c => {
+      const share = total > 0 ? Math.round((Number(c.total_spent || 0) / total) * 100) + '%' : '0%';
+      return [String(c.category || '-'), fmtPDF(c.total_spent), share];
+    }), { ctx });
+  }
+
+  // Risk Overview
+  const risks = Array.isArray(dashboardData.allRiskUsers) ? dashboardData.allRiskUsers : [];
+  if (risks.length > 0) {
+    const highCt = risks.filter(u => u.risk_level === 'High').length;
+    const medCt  = risks.filter(u => u.risk_level === 'Medium').length;
+    const lowCt  = risks.filter(u => u.risk_level === 'Low').length;
+    drawSection(doc, cur, 'Risk Overview', ctx);
+    drawTable(doc, cur, [
+      { label: 'LEVEL', width: CW * 0.50 },
+      { label: 'USERS', width: CW * 0.50, align: 'right' },
+    ], [
+      ['High Risk', String(highCt)],
+      ['Medium Risk', String(medCt)],
+      ['Low Risk', String(lowCt)],
+    ], { ctx });
+  }
+
+  stampFooters(doc, doc.internal.getNumberOfPages());
+  doc.save(`PESO_AI_Executive_Summary_${now.toISOString().slice(0, 10)}.pdf`);
+};
 /* ══════════════════════════════════════════════════════════════
    SHARED PDF UTILITIES — used by auditPDF.js, usersPDF.js, etc.
 ══════════════════════════════════════════════════════════════ */
