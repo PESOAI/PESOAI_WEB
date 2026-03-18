@@ -1,4 +1,4 @@
-![MAXIE Banner](https://img.shields.io/badge/MAXIE-PESO%20AI-blue?style=for-the-badge&logo=react)
+﻿![MAXIE Banner](https://img.shields.io/badge/MAXIE-PESO%20AI-blue?style=for-the-badge&logo=react)
 ![Node.js](https://img.shields.io/badge/Node.js-Express-green?style=for-the-badge&logo=node.js)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue?style=for-the-badge&logo=postgresql)
 ![React](https://img.shields.io/badge/React-Vite-61DAFB?style=for-the-badge&logo=react)
