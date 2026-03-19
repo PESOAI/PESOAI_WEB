@@ -20,7 +20,7 @@ import {
   clearSensitiveSessionData,
 } from '../utils/clientSession';
 
-const BASE = 'http://localhost:5000';
+const BASE = ''; // ← Vite proxy — do NOT use http://localhost:5000
 
 const HUB_TITLES = {
   profile:   'My Profile',
@@ -40,28 +40,52 @@ const AdminLayout = () => {
   const [showNotif,     setShowNotif]     = useState(false);
   const [maintenance,   setMaintenance]   = useState({ active: false, endsAt: null });
   const [maintRemaining,setMaintRemaining]= useState(null);
-  const forcedRef = useRef(false);
+  const forcedRef    = useRef(false);
   const maintFetchRef = useRef(0);
 
   const [currentUser, setCurrentUser] = useState(
     () => getCurrentUser() || { name: 'Admin', role: 'System Access' }
   );
 
-  const isMainAdmin = currentUser.role === 'Main Admin';
+  const isMainAdmin  = currentUser.role === 'Main Admin';
   const isSuperAdmin = currentUser.role === 'Super Admin' || currentUser.role === 'Main Admin';
   const isStaffAdmin = currentUser.role === 'Staff Admin';
-  const lastLogin   = localStorage.getItem('lastLogin') || 'No data';
+  const lastLogin    = localStorage.getItem('lastLogin') || 'No data';
+
+  // ── FIX: fetchProfile — stable ref, no currentUser dependency ──
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/auth/admins/me');
+      if (!res.ok) return;
+      const data = await res.json();
+      setCurrentUser(prev => {
+        const updated = {
+          ...prev,
+          id:           data.userId      || prev.id,
+          name:         data.displayName || prev.name,
+          role:         data.role        || prev.role,
+          avatar:       data.avatar      || prev.avatar || null, // ← DB avatar first
+          display_name: data.displayName || null,
+          displayName:  data.displayName || prev.displayName || prev.name,
+        };
+        persistCurrentUser(updated);
+        return updated;
+      });
+    } catch { /* silently fail */ }
+  }, []); // ← empty deps = no infinite loop
+
+  // Runs ONCE on mount only
+  useEffect(() => { fetchProfile(); }, []); // eslint-disable-line
 
   const syncMaintenance = useCallback(() => {
     const active = localStorage.getItem('pesoai_maint') === 'true';
-    let endsAt = Number(localStorage.getItem('pesoai_maint_until'));
+    const endsAt = Number(localStorage.getItem('pesoai_maint_until'));
     setMaintenance({ active, endsAt: Number.isFinite(endsAt) ? endsAt : null });
     if (!active) {
       setMaintRemaining(null);
       forcedRef.current = false;
     }
 
-    // Fetch authoritative maintenance state from backend (throttled)
     const now = Date.now();
     if (now - maintFetchRef.current < 4000) return;
     maintFetchRef.current = now;
@@ -81,42 +105,10 @@ const AdminLayout = () => {
       .catch(() => {});
   }, []);
 
-  // ── Helper: fetch fresh profile + avatar from server ───────
-  // ── FIX: extracted to useCallback so it can be called on hub open too ──
-  const fetchProfile = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${BASE}/api/auth/admins/me`);
-      if (!res.ok) return;
-      const data = await res.json();
-      // data fields: { id, name, role, avatar, display_name, created_at }
-
-      // ── FIX: prefer DB display_name; fall back to localStorage; then username ──
-      const displayName = data.displayName || currentUser.displayName || currentUser.name;
-
-      const updated = {
-        ...currentUser,
-        id: data.userId || currentUser.id,
-        name: data.displayName || currentUser.name,
-        role: data.role || currentUser.role,
-        avatar: currentUser.avatar || null,
-        display_name: data.displayName || null,
-        displayName,
-      };
-      setCurrentUser(updated);
-      persistCurrentUser(updated);
-    } catch { /* silently fail — use cached data */ }
-  }, [currentUser]); // eslint-disable-line
-
-  // Fetch profile on mount
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
-
-  // Maintenance: watch localStorage for cross-tab updates
   useEffect(() => {
     syncMaintenance();
-    const onStorage = (e) => {
-      if (e.key && e.key.startsWith('pesoai_maint')) syncMaintenance();
-    };
-    const onLocal = () => syncMaintenance();
+    const onStorage = (e) => { if (e.key?.startsWith('pesoai_maint')) syncMaintenance(); };
+    const onLocal   = () => syncMaintenance();
     window.addEventListener('storage', onStorage);
     window.addEventListener('pesoai_maint_change', onLocal);
     let bc;
@@ -127,18 +119,14 @@ const AdminLayout = () => {
           const msg = evt?.data || {};
           if (typeof msg.active === 'boolean') {
             localStorage.setItem('pesoai_maint', msg.active ? 'true' : 'false');
-            if (msg.active && msg.endsAt) {
-              localStorage.setItem('pesoai_maint_until', String(msg.endsAt));
-            } else {
-              localStorage.removeItem('pesoai_maint_until');
-            }
+            if (msg.active && msg.endsAt) localStorage.setItem('pesoai_maint_until', String(msg.endsAt));
+            else localStorage.removeItem('pesoai_maint_until');
             localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
             window.dispatchEvent(new Event('pesoai_maint_change'));
           }
         };
       } catch {}
     }
-    // Fallback polling in case storage events are blocked (multi-profile/browser quirks)
     const poll = setInterval(syncMaintenance, 1500);
     return () => {
       window.removeEventListener('storage', onStorage);
@@ -148,23 +136,21 @@ const AdminLayout = () => {
     };
   }, [syncMaintenance]);
 
-
-  // Basic session/device logging (client-side)
   useEffect(() => {
     if (!currentUser?.role) return;
     const key = 'pesoai_sessions';
     const upsert = () => {
       try {
         const list = JSON.parse(sessionStorage.getItem(key)) || [];
-        const id = currentUser.id || currentUser.name || currentUser.username || 'unknown';
-        const now = new Date().toISOString();
-        const ua = navigator.userAgent || 'Unknown';
+        const id   = currentUser.id || currentUser.name || 'unknown';
+        const now  = new Date().toISOString();
+        const ua   = navigator.userAgent || 'Unknown';
         const platform = navigator.platform || 'Unknown';
         const existing = list.find(x => x.id === id);
         if (existing) {
           existing.lastActive = now;
-          existing.userAgent = ua;
-          existing.platform = platform;
+          existing.userAgent  = ua;
+          existing.platform   = platform;
         } else {
           list.unshift({
             id,
@@ -209,40 +195,30 @@ const AdminLayout = () => {
 
   const forceLogout = useCallback(async () => {
     if (!isStaffAdmin) return;
-    try {
-      await apiFetch(`${BASE}/api/auth/logout`, { method: 'POST' });
-    } catch { /* ignore */ }
+    try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch {}
     clearSensitiveSessionData();
     sessionStorage.clear();
     localStorage.setItem('lastLogout', new Date().toLocaleString());
-    // Log maintenance kick for Staff Admins
-    if (isStaffAdmin) {
-      try {
-        const kicks = JSON.parse(sessionStorage.getItem('pesoai_maint_kicks')) || [];
-        kicks.unshift({
-          name: currentUser.display_name || currentUser.displayName || currentUser.name || 'Staff Admin',
-          role: currentUser.role,
-          time: new Date().toLocaleString(),
-        });
-        sessionStorage.setItem('pesoai_maint_kicks', JSON.stringify(kicks.slice(0, 50)));
-      } catch {}
-    }
+    try {
+      const kicks = JSON.parse(sessionStorage.getItem('pesoai_maint_kicks')) || [];
+      kicks.unshift({
+        name: currentUser.display_name || currentUser.displayName || currentUser.name || 'Staff Admin',
+        role: currentUser.role,
+        time: new Date().toLocaleString(),
+      });
+      sessionStorage.setItem('pesoai_maint_kicks', JSON.stringify(kicks.slice(0, 50)));
+    } catch {}
     navigate('/login', { replace: true });
   }, [navigate, isStaffAdmin, currentUser]);
 
-  // Maintenance countdown + forced logout
   useEffect(() => {
     if (!maintenance.active || !maintenance.endsAt) return;
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((maintenance.endsAt - Date.now()) / 1000));
       setMaintRemaining(remaining);
       if (remaining <= 0 && !forcedRef.current) {
-        if (isSuperAdmin) {
-          forcedRef.current = true;
-          return;
-        }
         forcedRef.current = true;
-        forceLogout();
+        if (!isSuperAdmin) forceLogout();
       }
     };
     tick();
@@ -250,7 +226,6 @@ const AdminLayout = () => {
     return () => clearInterval(id);
   }, [maintenance.active, maintenance.endsAt, forceLogout, isSuperAdmin, clearMaintenance]);
 
-  // Emergency override: Ctrl + Shift + M (Super Admin only)
   useEffect(() => {
     if (!isSuperAdmin) return;
     const onKeyDown = (e) => {
@@ -263,42 +238,32 @@ const AdminLayout = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isSuperAdmin, clearMaintenance]);
 
-  // ── FIX: also refresh profile whenever the hub modal opens so the
-  //         logged-in admin always sees their latest data from the DB ──
   const openHub = (view) => {
     setHubView(view);
     setIsProfileOpen(false);
-    if (view === 'profile') fetchProfile();
+    if (view === 'profile') fetchProfile(); // refresh avatar when opening profile
   };
 
   const handleAvatarUpdate = (base64, displayName) => {
     const updated = {
       ...currentUser,
       avatar: base64,
-      ...(displayName !== undefined && {
-        displayName,
-        display_name: displayName,
-      }),
+      ...(displayName !== undefined && { displayName, display_name: displayName }),
     };
     setCurrentUser(updated);
     persistCurrentUser(updated);
   };
 
-  // Guard: only Main Admin can access /admin/users
   if (location.pathname === '/admin/users' && !isMainAdmin && !isSuperAdmin)
     return <Navigate to="/admin" replace />;
 
   const handleLogout = async () => {
     const ok = await confirm({
-      variant:  'logout',
-      title:    'Sign Out?',
-      subtitle: 'Your session will end.',
-      subject:  currentUser.name,
+      variant: 'logout', title: 'Sign Out?',
+      subtitle: 'Your session will end.', subject: currentUser.name,
     });
     if (!ok) return;
-    try {
-      await apiFetch(`${BASE}/api/auth/logout`, { method: 'POST' });
-    } catch { /* ignore */ }
+    try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch {}
     clearSensitiveSessionData();
     sessionStorage.clear();
     localStorage.setItem('lastLogout', new Date().toLocaleString());
@@ -307,10 +272,8 @@ const AdminLayout = () => {
 
   const handleSwitchAccount = async () => {
     const ok = await confirm({
-      variant:  'switch',
-      title:    'Switch Account?',
-      subtitle: "You'll be logged out.",
-      subject:  currentUser.name,
+      variant: 'switch', title: 'Switch Account?',
+      subtitle: "You'll be logged out.", subject: currentUser.name,
     });
     if (!ok) return;
     clearSensitiveSessionData();
@@ -329,7 +292,6 @@ const AdminLayout = () => {
     return 'Admin Control Center';
   };
 
-  // ── Avatar helper (reusable) ────────────────────────────────
   const AdminAvatar = ({ avatar, size = 10, rounded = 'xl' }) => {
     const sizeMap = { 10: 'w-10 h-10', 8: 'w-8 h-8', 20: 'w-20 h-20' };
     const cls = `${sizeMap[size] || 'w-10 h-10'} rounded-${rounded} bg-slate-900 flex items-center justify-center text-white shadow-lg overflow-hidden flex-shrink-0`;
@@ -353,7 +315,6 @@ const AdminLayout = () => {
     }
   };
 
-  // ── Resolved display name: DB value wins, then localStorage, then username ──
   const displayName = currentUser.display_name || currentUser.displayName || currentUser.name;
 
   return (
@@ -442,19 +403,19 @@ const AdminLayout = () => {
                 </span>
               )}
 
-                {isProfileOpen && (
-                  <ProfileDropdown
-                    currentUser={{ ...currentUser, displayName }}
-                    lastLogin={lastLogin}
-                    onOpenHub={openHub}
-                    onNotif={() => setShowNotif(true)}
-                    onSwitchAccount={handleSwitchAccount}
-                    onLogout={handleLogout}
-                    onToast={showToast}
-                    onConfirmMaintenance={confirmMaintenanceOn}
-                    onClose={() => setIsProfileOpen(false)}
-                  />
-                )}
+              {isProfileOpen && (
+                <ProfileDropdown
+                  currentUser={{ ...currentUser, displayName }}
+                  lastLogin={lastLogin}
+                  onOpenHub={openHub}
+                  onNotif={() => setShowNotif(true)}
+                  onSwitchAccount={handleSwitchAccount}
+                  onLogout={handleLogout}
+                  onToast={showToast}
+                  onConfirmMaintenance={confirmMaintenanceOn}
+                  onClose={() => setIsProfileOpen(false)}
+                />
+              )}
             </div>
           </div>
         </header>
