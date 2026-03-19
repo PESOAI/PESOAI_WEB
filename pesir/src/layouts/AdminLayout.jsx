@@ -1,4 +1,6 @@
 // layouts/AdminLayout.jsx — PESO AI
+// pesir/src/layouts/AdminLayout.jsx
+// Admin shell layout for authenticated sessions, maintenance controls, and profile actions.
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { LayoutDashboard, Users, ShieldCheck, ChevronDown } from 'lucide-react';
@@ -11,6 +13,12 @@ import { ProfileDropdown }                        from '../components/hub/Profil
 import { HubModal }                               from '../components/hub/HubModal';
 import { ProfilePanel, SecurityPanel }            from '../components/hub/ProfilePanels';
 import { LogsPanel, AuditPanel, AdminMgmtPanel }  from '../components/hub/SystemPanels';
+import { apiFetch } from '../utils/authClient';
+import {
+  getCurrentUser,
+  setCurrentUser as persistCurrentUser,
+  clearSensitiveSessionData,
+} from '../utils/clientSession';
 
 const BASE = 'http://localhost:5000';
 
@@ -36,7 +44,7 @@ const AdminLayout = () => {
   const maintFetchRef = useRef(0);
 
   const [currentUser, setCurrentUser] = useState(
-    () => JSON.parse(localStorage.getItem('currentUser')) || { name: 'Admin', role: 'System Access' }
+    () => getCurrentUser() || { name: 'Admin', role: 'System Access' }
   );
 
   const isMainAdmin = currentUser.role === 'Main Admin';
@@ -54,14 +62,10 @@ const AdminLayout = () => {
     }
 
     // Fetch authoritative maintenance state from backend (throttled)
-    const token = localStorage.getItem('token');
-    if (!token) return;
     const now = Date.now();
     if (now - maintFetchRef.current < 4000) return;
     maintFetchRef.current = now;
-    fetch('http://localhost:5000/api/maintenance', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    apiFetch('/api/maintenance')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data || typeof data.active !== 'boolean') return;
@@ -80,35 +84,28 @@ const AdminLayout = () => {
   // ── Helper: fetch fresh profile + avatar from server ───────
   // ── FIX: extracted to useCallback so it can be called on hub open too ──
   const fetchProfile = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
     try {
-      const res = await fetch(`${BASE}/api/auth/admins/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`${BASE}/api/auth/admins/me`);
       if (!res.ok) return;
       const data = await res.json();
       // data fields: { id, name, role, avatar, display_name, created_at }
 
       // ── FIX: prefer DB display_name; fall back to localStorage; then username ──
-      const displayName =
-        data.display_name ||
-        localStorage.getItem(`displayName_${data.name}`) ||
-        data.name;
+      const displayName = data.displayName || currentUser.displayName || currentUser.name;
 
       const updated = {
         ...currentUser,
-        id:           data.id,
-        name:         data.name,
-        role:         data.role,
-        avatar:       data.avatar       || null,
-        display_name: data.display_name || null,
+        id: data.userId || currentUser.id,
+        name: data.displayName || currentUser.name,
+        role: data.role || currentUser.role,
+        avatar: currentUser.avatar || null,
+        display_name: data.displayName || null,
         displayName,
       };
       setCurrentUser(updated);
-      localStorage.setItem('currentUser', JSON.stringify(updated));
+      persistCurrentUser(updated);
     } catch { /* silently fail — use cached data */ }
-  }, []); // eslint-disable-line
+  }, [currentUser]); // eslint-disable-line
 
   // Fetch profile on mount
   useEffect(() => { fetchProfile(); }, [fetchProfile]);
@@ -158,7 +155,7 @@ const AdminLayout = () => {
     const key = 'pesoai_sessions';
     const upsert = () => {
       try {
-        const list = JSON.parse(localStorage.getItem(key)) || [];
+        const list = JSON.parse(sessionStorage.getItem(key)) || [];
         const id = currentUser.id || currentUser.name || currentUser.username || 'unknown';
         const now = new Date().toISOString();
         const ua = navigator.userAgent || 'Unknown';
@@ -178,7 +175,7 @@ const AdminLayout = () => {
             lastActive: now,
           });
         }
-        localStorage.setItem(key, JSON.stringify(list.slice(0, 50)));
+        sessionStorage.setItem(key, JSON.stringify(list.slice(0, 50)));
       } catch {}
     };
     upsert();
@@ -194,14 +191,10 @@ const AdminLayout = () => {
     setMaintenance({ active: false, endsAt: null });
     setMaintRemaining(null);
     forcedRef.current = false;
-    const token = localStorage.getItem('token');
-    if (token) {
-      fetch('http://localhost:5000/api/maintenance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ active: false }),
-      }).catch(() => {});
-    }
+    apiFetch('/api/maintenance', {
+      method: 'POST',
+      body: JSON.stringify({ active: false }),
+    }).catch(() => {});
   }, []);
 
   const confirmMaintenanceOn = useCallback(async () => {
@@ -217,30 +210,24 @@ const AdminLayout = () => {
   const forceLogout = useCallback(async () => {
     if (!isStaffAdmin) return;
     try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await fetch(`${BASE}/api/auth/logout`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
+      await apiFetch(`${BASE}/api/auth/logout`, { method: 'POST' });
     } catch { /* ignore */ }
-    localStorage.removeItem('token');
-    localStorage.removeItem('currentUser');
+    clearSensitiveSessionData();
+    sessionStorage.clear();
     localStorage.setItem('lastLogout', new Date().toLocaleString());
     // Log maintenance kick for Staff Admins
     if (isStaffAdmin) {
       try {
-        const kicks = JSON.parse(localStorage.getItem('pesoai_maint_kicks')) || [];
+        const kicks = JSON.parse(sessionStorage.getItem('pesoai_maint_kicks')) || [];
         kicks.unshift({
           name: currentUser.display_name || currentUser.displayName || currentUser.name || 'Staff Admin',
           role: currentUser.role,
           time: new Date().toLocaleString(),
         });
-        localStorage.setItem('pesoai_maint_kicks', JSON.stringify(kicks.slice(0, 50)));
+        sessionStorage.setItem('pesoai_maint_kicks', JSON.stringify(kicks.slice(0, 50)));
       } catch {}
     }
-    navigate('/', { replace: true });
+    navigate('/login', { replace: true });
   }, [navigate, isStaffAdmin, currentUser]);
 
   // Maintenance countdown + forced logout
@@ -294,7 +281,7 @@ const AdminLayout = () => {
       }),
     };
     setCurrentUser(updated);
-    localStorage.setItem('currentUser', JSON.stringify(updated));
+    persistCurrentUser(updated);
   };
 
   // Guard: only Main Admin can access /admin/users
@@ -310,16 +297,12 @@ const AdminLayout = () => {
     });
     if (!ok) return;
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${BASE}/api/auth/logout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await apiFetch(`${BASE}/api/auth/logout`, { method: 'POST' });
     } catch { /* ignore */ }
-    localStorage.removeItem('token');
-    localStorage.removeItem('currentUser');
+    clearSensitiveSessionData();
+    sessionStorage.clear();
     localStorage.setItem('lastLogout', new Date().toLocaleString());
-    navigate('/', { replace: true });
+    navigate('/login', { replace: true });
   };
 
   const handleSwitchAccount = async () => {
@@ -330,9 +313,9 @@ const AdminLayout = () => {
       subject:  currentUser.name,
     });
     if (!ok) return;
-    localStorage.removeItem('token');
-    localStorage.removeItem('currentUser');
-    navigate('/', { state: { fromSwitch: true }, replace: true });
+    clearSensitiveSessionData();
+    sessionStorage.clear();
+    navigate('/login', { state: { fromSwitch: true }, replace: true });
   };
 
   const menuItems = [

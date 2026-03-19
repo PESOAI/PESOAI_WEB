@@ -12,6 +12,8 @@ import { Badge } from '../UIAtoms';
 import { generateAuditPDF }  from '../../pdf/auditPDF';
 import { generateAuditXLSX } from '../../pdf/auditExport';
 import logo from '../../assets/logo.png';
+import { apiFetch } from '../../utils/authClient';
+import { getCurrentUser } from '../../utils/clientSession';
 
 const BASE = 'http://localhost:5000';
 
@@ -367,14 +369,13 @@ export const LogsPanel = ({ showToast }) => {
   // ── Confirm modal state ───────────────────────────────────
   const [confirm, setConfirm] = useState({ open: false });
 
-  const currentUser = JSON.parse(localStorage.getItem('currentUser')) || {};
+  const currentUser = getCurrentUser() || {};
   const isMain      = currentUser.role === 'Main Admin';
 
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const r = await fetch(`${BASE}/api/logs`, { headers: { Authorization: `Bearer ${token}` } });
+      const r = await apiFetch(`${BASE}/api/logs`);
       if (!r.ok) throw new Error();
       const d = await r.json();
       setLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) : []);
@@ -394,8 +395,7 @@ export const LogsPanel = ({ showToast }) => {
       confirmLabel: 'Yes, Clear All',
       onConfirm:    async () => {
         setConfirm({ open: false });
-        const token = localStorage.getItem('token');
-        await fetch(`${BASE}/api/logs`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+        await apiFetch(`${BASE}/api/logs`, { method: 'DELETE' });
         setLogs([]);
         showToast('All logs cleared.', 'warning');
       },
@@ -483,8 +483,7 @@ export const AuditPanel = () => {
   const fetchAudit = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const r     = await fetch(`${BASE}/api/auth/audit-logs`, { headers: { Authorization: `Bearer ${token}` } });
+      const r     = await apiFetch(`${BASE}/api/auth/audit-logs`);
       if (!r.ok) throw new Error();
       const d = await r.json();
       setLogs(Array.isArray(d) ? d : []);
@@ -676,8 +675,7 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
   const fetchAdmins = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const r     = await fetch(`${BASE}/api/auth/admins`, { headers: { Authorization: `Bearer ${token}` } });
+      const r     = await apiFetch(`${BASE}/api/auth/admins`);
       if (!r.ok) throw new Error();
       setAdmins(await r.json());
     } catch { setAdmins([]); }
@@ -708,8 +706,7 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
       onConfirm:    async () => {
         setConfirm({ open: false });
         try {
-          const token = localStorage.getItem('token');
-          const res   = await fetch(`${BASE}/api/auth/admins/${admin.admin_id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+          const res = await apiFetch(`${BASE}/api/auth/admins/${admin.admin_id}`, { method: 'DELETE' });
           const data  = await res.json();
           if (!res.ok) throw new Error(data.message);
           showToast(`Removed: ${name}`, 'warning');
@@ -725,10 +722,8 @@ export const AdminMgmtPanel = ({ currentUser, showToast }) => {
     if (!allPassed) { setMsg({ text: '❌ Password does not meet all requirements.', type: 'error' }); return; }
     setBusy(true);
     try {
-      const token = localStorage.getItem('token');
-      const res   = await fetch(`${BASE}/api/auth/admins`, {
+      const res   = await apiFetch(`${BASE}/api/auth/admins`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ username: form.username, password: form.password, role: 'Staff Admin' }),
       });
       const data = await res.json();

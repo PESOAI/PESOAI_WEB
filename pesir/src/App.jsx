@@ -1,64 +1,41 @@
-// src/App.jsx – PESO AI (JWT Protected Routes) - FIXED
+// pesir/src/App.jsx
+// Root app routes with cookie-based auth verification and one-time sensitive storage cleanup.
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { initEmergencyResume } from './utils/EmergencyResume';
+import { apiFetch } from './utils/authClient';
+import { migrateSensitiveStorage, clearSensitiveSessionData, setCurrentUser, getCurrentUser } from './utils/clientSession';
 
-import React, { useEffect, useState } from "react";
-import { initEmergencyResume } from "./utils/EmergencyResume";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import LandingPage from './pages/LandingPage';
+import AdminLayout from './layouts/AdminLayout';
+import AdminDashboard from './pages/AdminDashboard';
+import UserManagement from './pages/UserManagement';
 
-import LandingPage from "./pages/LandingPage";
-import AdminLayout from "./layouts/AdminLayout";
-import AdminDashboard from "./pages/AdminDashboard";
-import UserManagement from "./pages/UserManagement";
-
-// ─────────────────────────────────────────────────────────────
-// Helper: check if JWT token is expired (without backend call)
-// ─────────────────────────────────────────────────────────────
-const isTokenExpired = (token) => {
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.exp * 1000 < Date.now();
-  } catch {
-    return true;
-  }
-};
-
-// ─────────────────────────────────────────────────────────────
-// ProtectedRoute
-// ─────────────────────────────────────────────────────────────
 const ProtectedRoute = ({ children }) => {
   const [status, setStatus] = useState('checking');
 
   useEffect(() => {
     const verify = async () => {
-      const token = localStorage.getItem('token');
-
-      if (!token) {
-        setStatus('invalid');
-        return;
-      }
-
-      if (isTokenExpired(token)) {
-        console.warn('[AUTH] Token expired — clearing session');
-        localStorage.removeItem('token');
-        localStorage.removeItem('currentUser');
-        setStatus('invalid');
-        return;
-      }
-
-      setStatus('valid');
-
       try {
-        const res = await fetch('http://localhost:5000/api/auth/verify', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-
-        if (!res.ok) {
-          console.warn('[AUTH] Backend rejected token — logging out');
-          localStorage.removeItem('token');
-          localStorage.removeItem('currentUser');
+        const response = await apiFetch('/api/auth/verify', { method: 'GET' });
+        if (!response.ok) {
+          clearSensitiveSessionData();
           setStatus('invalid');
+          return;
         }
-      } catch (error) {
-        console.warn('[AUTH] Backend unreachable — trusting local token:', error.message);
+        const data = await response.json();
+        if (data?.userId) {
+          setCurrentUser({
+            id: data.userId,
+            displayName: data.displayName,
+            role: data.role,
+            name: data.displayName,
+          });
+        }
+        setStatus('valid');
+      } catch {
+        clearSensitiveSessionData();
+        setStatus('invalid');
       }
     };
 
@@ -79,9 +56,9 @@ const ProtectedRoute = ({ children }) => {
   return status === 'valid' ? children : <Navigate to="/" replace />;
 };
 
-// ─────────────────────────────────────────────────────────────
 function App() {
   useEffect(() => {
+    migrateSensitiveStorage();
     const cleanup = initEmergencyResume();
     return () => cleanup && cleanup();
   }, []);
@@ -89,21 +66,17 @@ function App() {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (!(e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === 'u')) return;
-      const currentUser = JSON.parse(localStorage.getItem('currentUser')) || {};
+      const currentUser = getCurrentUser() || {};
       if (!(currentUser.role === 'Super Admin' || currentUser.role === 'Main Admin')) return;
       e.preventDefault();
       localStorage.setItem('pesoai_maint', 'false');
       localStorage.removeItem('pesoai_maint_until');
       localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
       window.dispatchEvent(new Event('pesoai_maint_change'));
-      const token = localStorage.getItem('token');
-      if (token) {
-        fetch('http://localhost:5000/api/maintenance', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ active: false }),
-        }).catch(() => {});
-      }
+      apiFetch('/api/maintenance', {
+        method: 'POST',
+        body: JSON.stringify({ active: false }),
+      }).catch(() => {});
       window.location.reload();
     };
     window.addEventListener('keydown', onKeyDown);
@@ -114,14 +87,15 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LandingPage />} />
 
         <Route
           path="/admin"
-          element={
+          element={(
             <ProtectedRoute>
               <AdminLayout />
             </ProtectedRoute>
-          }
+          )}
         >
           <Route index element={<AdminDashboard />} />
           <Route path="users" element={<UserManagement />} />

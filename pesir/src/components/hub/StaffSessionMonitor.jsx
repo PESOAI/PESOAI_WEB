@@ -7,7 +7,7 @@ export const StaffSessionMonitor = () => {
   useEffect(() => {
     const load = () => {
       try {
-        const raw = JSON.parse(localStorage.getItem('pesoai_sessions')) || [];
+        const raw = JSON.parse(sessionStorage.getItem('pesoai_sessions')) || [];
         const staff = raw.filter(s => (s.role || '') === 'Staff Admin');
         setSessions(staff);
       } catch { setSessions([]); }
@@ -63,4 +63,3 @@ export const StaffSessionMonitor = () => {
     </div>
   );
 };
-

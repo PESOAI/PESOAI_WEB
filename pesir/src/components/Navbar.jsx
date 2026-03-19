@@ -1,19 +1,42 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { ShieldCheck, X, ArrowRight } from "lucide-react";
-import logo from "../assets/logo.png";
+// pesir/src/components/Navbar.jsx
+// Landing-page navbar and secure admin login modal with inline form validation.
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ShieldCheck, X, ArrowRight } from 'lucide-react';
+import logo from '../assets/logo.png';
+import { useFormValidation } from '../hooks/useFormValidation';
+import { apiFetch } from '../utils/authClient';
+import { setCurrentUser } from '../utils/clientSession';
 
 export default function Navbar({ openLogin }) {
   const navigate = useNavigate();
   const [tapCount, setTapCount] = useState(0);
   const [showAdminModal, setShowAdminModal] = useState(openLogin || false);
-  const [accessKey, setAccessKey] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState(false);
+  const [serverError, setServerError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
-  const isLoggingIn = useRef(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const submitLockRef = useRef(false);
 
-  useEffect(() => { setShowAdminModal(openLogin || false); }, [openLogin]);
+  const {
+    values,
+    errors,
+    touched,
+    handleChange,
+    handleBlur,
+    runValidation,
+    isFormValid,
+  } = useFormValidation(
+    {
+      username: { required: true },
+      password: { required: true },
+    },
+    { username: '', password: '' }
+  );
+
+  useEffect(() => {
+    setShowAdminModal(openLogin || false);
+  }, [openLogin]);
+
   useEffect(() => {
     const timer = setTimeout(() => setTapCount(0), 2000);
     return () => clearTimeout(timer);
@@ -22,47 +45,62 @@ export default function Navbar({ openLogin }) {
   const handleLogoTap = () => {
     const next = tapCount + 1;
     setTapCount(next);
-    if (next === 5) { setShowAdminModal(true); setTapCount(0); }
-  };
-
-  const handleLogin = async () => {
-    const u = accessKey.trim();
-    const p = password.trim();
-
-    if (!u || !p) return;
-    if (isLoggingIn.current) return;
-    isLoggingIn.current = true;
-
-    try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: u, password: p }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.token) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('currentUser', JSON.stringify(data.user || {}));
-        localStorage.setItem('lastLogin', new Date().toLocaleString());
-        setIsSuccess(true);
-        setTimeout(() => navigate("/admin", { replace: true }), 800);
-      } else {
-        throw new Error(data.message || 'Login failed');
-      }
-    } catch (err) {
-      setError(true);
-      setTimeout(() => setError(false), 1000);
-    } finally {
-      setTimeout(() => { isLoggingIn.current = false; }, 1500);
+    if (next === 5) {
+      setShowAdminModal(true);
+      setTapCount(0);
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleLogin();
+  const handleLogin = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
+    if (submitLockRef.current || isLoading) return;
+    setServerError('');
+    if (!runValidation()) return;
+    submitLockRef.current = true;
+    setIsLoading(true);
+
+    try {
+      const response = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: values.username,
+          password: values.password,
+        }),
+      });
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      const userId = data.userId || data.id || data?.user?.userId || data?.user?.id || null;
+      const displayName = data.displayName || data?.user?.displayName || values.username;
+      const role = data.role || data?.user?.role || 'Admin';
+
+      if (userId) {
+        setCurrentUser({
+          id: userId,
+          displayName,
+          role,
+          name: displayName,
+        });
+      }
+      localStorage.setItem('lastLogin', new Date().toLocaleString());
+      setIsSuccess(true);
+      if (response.status === 200) {
+        navigate('/admin', { replace: true });
+        return;
+      }
+    } catch (err) {
+      setServerError(err.message || 'Invalid credentials');
+    } finally {
+      submitLockRef.current = false;
+      setIsLoading(false);
     }
   };
 
@@ -95,10 +133,11 @@ export default function Navbar({ openLogin }) {
             className="absolute inset-0 bg-slate-950/60 backdrop-blur-2xl animate-in fade-in duration-500"
             onClick={() => setShowAdminModal(false)}
           />
-          <div className={`relative bg-white rounded-[2.5rem] p-8 md:p-10 max-w-sm w-full shadow-2xl border-4 transition-all duration-500
-            ${error ? 'border-red-400 animate-bounce' : 'border-indigo-50/50'}
-            ${isSuccess ? 'scale-90 opacity-0' : 'animate-in zoom-in-95 duration-300'}`}>
-
+          <div
+            className={`relative bg-white rounded-[2.5rem] p-8 md:p-10 max-w-sm w-full shadow-2xl border-4 transition-all duration-500 ${
+              serverError ? 'border-red-400' : 'border-indigo-50/50'
+            } ${isSuccess ? 'scale-90 opacity-0' : 'animate-in zoom-in-95 duration-300'}`}
+          >
             <button
               onClick={() => setShowAdminModal(false)}
               className="absolute right-8 top-8 p-1.5 hover:bg-slate-100 rounded-full text-slate-300 transition-colors"
@@ -107,12 +146,13 @@ export default function Navbar({ openLogin }) {
             </button>
 
             <div className="text-center">
-              <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 transition-all duration-700 shadow-2xl
-                ${isSuccess ? 'bg-emerald-500 shadow-emerald-200 scale-110' : 'bg-[#0d1b3e] shadow-slate-300'}`}>
+              <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 transition-all duration-700 shadow-2xl ${
+                isSuccess ? 'bg-emerald-500 shadow-emerald-200 scale-110' : 'bg-[#0d1b3e] shadow-slate-300'
+              }`}
+              >
                 {isSuccess
                   ? <ShieldCheck size={36} className="text-white" />
-                  : <img src={logo} alt="PESO AI" className="w-12 h-12 object-contain" />
-                }
+                  : <img src={logo} alt="PESO AI" className="w-12 h-12 object-contain" />}
               </div>
 
               <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-2">
@@ -123,43 +163,52 @@ export default function Navbar({ openLogin }) {
               </p>
 
               {!isSuccess && (
-                <div className="space-y-4">
+                <form className="space-y-4" onSubmit={handleLogin}>
                   <div className="text-left space-y-1">
                     <label className="text-[10px] font-black text-indigo-600 ml-4 uppercase tracking-tighter">Username:</label>
                     <input
                       type="text"
-                      value={accessKey}
-                      onChange={(e) => setAccessKey(e.target.value)}
-                      onKeyDown={handleKeyDown}
+                      name="username"
+                      value={values.username}
+                      onChange={handleChange}
+                      onBlur={handleBlur}
                       placeholder="Enter Username"
                       autoComplete="off"
                       className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-100 focus:bg-white focus:border-indigo-500 outline-none transition-all font-mono text-slate-900"
                     />
+                    {touched.username && errors.username && (
+                      <p className="text-[10px] font-semibold text-red-500 ml-2">{errors.username}</p>
+                    )}
                   </div>
                   <div className="text-left space-y-1">
                     <label className="text-[10px] font-black text-indigo-600 ml-4 uppercase tracking-tighter">Password:</label>
                     <input
                       type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="••••••••"
+                      name="password"
+                      value={values.password}
+                      onChange={handleChange}
+                      onBlur={handleBlur}
+                      placeholder="********"
                       autoComplete="current-password"
                       className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-100 focus:bg-white focus:border-indigo-500 outline-none transition-all font-mono text-slate-900"
                     />
+                    {touched.password && errors.password && (
+                      <p className="text-[10px] font-semibold text-red-500 ml-2">{errors.password}</p>
+                    )}
                   </div>
-                  {error && (
+                  {serverError && (
                     <p className="text-red-500 text-[10px] font-black uppercase tracking-widest animate-pulse">
-                      Invalid Credentials
+                      {serverError}
                     </p>
                   )}
                   <button
-                    onClick={handleLogin}
-                    className="w-full py-4 mt-4 bg-indigo-600 text-white font-black text-sm rounded-2xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all flex items-center justify-center gap-2"
+                    type="submit"
+                    disabled={!isFormValid || isLoading}
+                    className="w-full py-4 mt-4 bg-indigo-600 text-white font-black text-sm rounded-2xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-indigo-100 transition-all flex items-center justify-center gap-2"
                   >
                     Authenticate <ArrowRight size={16} />
                   </button>
-                </div>
+                </form>
               )}
             </div>
           </div>

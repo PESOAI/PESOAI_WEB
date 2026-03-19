@@ -9,6 +9,9 @@ import {
 import { ShieldCheck } from 'lucide-react';
 import { Badge } from '../UIAtoms';
 import { ImageCropper } from './HubModal';
+import { apiFetch } from '../../utils/authClient';
+import { getCurrentUser, setCurrentUser } from '../../utils/clientSession';
+import { useFormValidation } from '../../hooks/useFormValidation';
 
 const BASE = 'http://localhost:5000';
 
@@ -17,7 +20,7 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
   // ── FIX: prefer DB display_name → then localStorage fallback → then username ──
   const storedDisplay =
     currentUser.display_name ||
-    localStorage.getItem(`displayName_${currentUser.name}`) ||
+    sessionStorage.getItem(`displayName_${currentUser.name}`) ||
     currentUser.name;
 
   const [editing, setEditing] = useState(false);
@@ -30,16 +33,14 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
   const saveAvatarToDB = async (base64) => {
     setSaving(true);
     try {
-      const token = localStorage.getItem('token');
-      const res   = await fetch(`${BASE}/api/auth/admins/avatar`, {
+      const res   = await apiFetch(`${BASE}/api/auth/admins/avatar`, {
         method:  'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ avatar: base64 }),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Failed to save avatar'); }
-      const stored  = JSON.parse(localStorage.getItem('currentUser')) || {};
+      const stored  = getCurrentUser() || {};
       const updated = { ...stored, avatar: base64 };
-      localStorage.setItem('currentUser', JSON.stringify(updated));
+      setCurrentUser(updated);
       setAvatar(base64);
       onAvatarUpdate(base64);
       showToast('Profile picture saved!', 'success');
@@ -51,12 +52,9 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
     // ── FIX: persist display name to DB so Main Admin sees updated names ──
     const newDisplayName = form.name.trim() || currentUser.name;
     try {
-      const token = localStorage.getItem('token');
-
       // 1. Save display name to DB
-      const dnRes = await fetch(`${BASE}/api/auth/admins/display-name`, {
+      const dnRes = await apiFetch(`${BASE}/api/auth/admins/display-name`, {
         method:  'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ displayName: newDisplayName }),
       });
       if (!dnRes.ok) {
@@ -65,10 +63,10 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
       }
 
       // 2. Update localStorage (kept for backward compat + offline resilience)
-      localStorage.setItem(`displayName_${currentUser.name}`, newDisplayName);
-      const stored  = JSON.parse(localStorage.getItem('currentUser')) || {};
+      sessionStorage.setItem(`displayName_${currentUser.name}`, newDisplayName);
+      const stored  = getCurrentUser() || {};
       const updated = { ...stored, displayName: newDisplayName, display_name: newDisplayName, avatar };
-      localStorage.setItem('currentUser', JSON.stringify(updated));
+      setCurrentUser(updated);
 
       // 3. Notify parent (AdminLayout) so the header updates immediately
       onAvatarUpdate(avatar, newDisplayName);
@@ -76,9 +74,8 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
       // 4. Audit log — only if name actually changed
       const prevName = currentUser.display_name || currentUser.displayName || currentUser.name;
       if (newDisplayName !== prevName) {
-        await fetch(`${BASE}/api/auth/audit-logs`, {
+        await apiFetch(`${BASE}/api/auth/audit-logs`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ action: `Changed display name to "${newDisplayName}"`, target_type: 'admin' }),
         }).catch(() => {});
       }
@@ -193,7 +190,23 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
 
 // ─── Security Panel ───────────────────────────────────────────
 export const SecurityPanel = ({ currentUser, showToast }) => {
-  const [pw,   setPw]   = useState({ current: '', newPw: '', confirm: '' });
+  const {
+    values: pw,
+    errors,
+    touched,
+    handleChange,
+    handleBlur,
+    setValues: setPw,
+    runValidation,
+    isFormValid,
+  } = useFormValidation(
+    {
+      current: { required: true },
+      newPw: { required: true, passwordStrength: true },
+      confirm: { required: true },
+    },
+    { current: '', newPw: '', confirm: '' }
+  );
   const [show, setShow] = useState({ current: false, newPw: false, confirm: false });
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -206,15 +219,13 @@ export const SecurityPanel = ({ currentUser, showToast }) => {
 
   const handleSubmit = async e => {
     e.preventDefault();
+    if (!runValidation()) return;
     if (pw.newPw !== pw.confirm)  { showToast('Passwords do not match.', 'error');                return; }
-    if (pw.newPw.length < 8)      { showToast('Minimum 8 characters required.', 'error');         return; }
     if (pw.current === pw.newPw)  { showToast('New password must differ from current.', 'error'); return; }
     setBusy(true);
     try {
-      const token = localStorage.getItem('token');
-      const res   = await fetch(`${BASE}/api/auth/admins/change-password`, {
+      const res   = await apiFetch(`${BASE}/api/auth/admins/change-password`, {
         method:  'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ currentPassword: pw.current, newPassword: pw.newPw }),
       });
       const data = await res.json();
@@ -261,7 +272,9 @@ export const SecurityPanel = ({ currentUser, showToast }) => {
               <Lock size={14} className="text-slate-400" />
               <input
                 type={show[key] ? 'text' : 'password'} value={pw[key]}
-                onChange={e => setPw({ ...pw, [key]: e.target.value })}
+                name={key}
+                onChange={handleChange}
+                onBlur={handleBlur}
                 className="flex-1 text-sm outline-none bg-transparent font-medium text-slate-800"
                 placeholder="••••••••" required
               />
@@ -269,6 +282,9 @@ export const SecurityPanel = ({ currentUser, showToast }) => {
                 {show[key] ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
+            {touched[key] && errors[key] && (
+              <p className="text-[10px] font-semibold text-red-500 ml-1 mt-1">{errors[key]}</p>
+            )}
           </div>
         ))}
 
@@ -283,7 +299,7 @@ export const SecurityPanel = ({ currentUser, showToast }) => {
           </div>
         )}
 
-        <button type="submit" disabled={busy}
+        <button type="submit" disabled={busy || !isFormValid || pw.newPw !== pw.confirm}
           className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-60 transition-all flex items-center justify-center gap-2">
           {busy ? <><RefreshCw size={14} className="animate-spin" />Updating…</> : <><Save size={14} />Update Password</>}
         </button>

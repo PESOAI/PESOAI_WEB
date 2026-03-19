@@ -1,4 +1,6 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+// pesir/src/pages/AdminDashboard.jsx
+// Analytics dashboard for admins with secure cookie-auth API data loading.
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Users, Activity, Wallet, ArrowDownCircle, PieChart as PieIcon,
   AlertTriangle, TrendingUp, TrendingDown, RefreshCw, FileText,
@@ -21,6 +23,8 @@ import PdfExportModal from '../components/PdfExportModal';
 import { EmptyState, Card, Dropdown } from '../components/UIAtoms';
 import { detectAnomalies } from '../utils/AnomalyDetector';
 import { useConfirm, ConfirmModal, Toast } from '../components/GlobalConfirmModal';
+import { apiFetch } from '../utils/authClient';
+import { getCurrentUser } from '../utils/clientSession';
 
 const API = 'http://localhost:5000/api/admin';
 
@@ -51,14 +55,9 @@ const BUCKET_COLORS = {
   'High Saver':     '#22C55E',
 };
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-/* ══════════════════════════════════════════════════════════════
+/* --------------------------------------------------------------
    ADMIN DASHBOARD
-══════════════════════════════════════════════════════════════ */
+-------------------------------------------------------------- */
 const AdminDashboard = () => {
   const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
   const [kpis,         setKpis]         = useState(null);
@@ -85,18 +84,17 @@ const AdminDashboard = () => {
   const mountedRef = useRef(false);
 
   const isMainOrSuper = (() => {
-    const u = JSON.parse(localStorage.getItem('currentUser')) || {};
+    const u = getCurrentUser() || {};
     return u.role === 'Main Admin' || u.role === 'Super Admin';
   })();
 
   const fetchBase = useCallback(async (period = 'monthly') => {
     try {
-      const headers = getAuthHeaders();
       const [k, c, h, s] = await Promise.all([
-        fetch(`${API}/kpis`,                                    { headers }).then(r => r.json()),
-        fetch(`${API}/top-categories`,                          { headers }).then(r => r.json()),
-        fetch(`${API}/high-risk`,                               { headers }).then(r => r.json()),
-        fetch(`${API}/savings-distribution?period=${period}`,   { headers }).then(r => r.json()),
+        apiFetch(`${API}/kpis`).then(r => r.json()),
+        apiFetch(`${API}/top-categories`).then(r => r.json()),
+        apiFetch(`${API}/high-risk`).then(r => r.json()),
+        apiFetch(`${API}/savings-distribution?period=${period}`).then(r => r.json()),
       ]);
       setKpis(k);
       setCategories((Array.isArray(c) ? c : []).map((cat, i) => ({
@@ -122,7 +120,7 @@ const AdminDashboard = () => {
   const fetchTrend = useCallback(async (period) => {
     setTrendLoading(true);
     try {
-      const t = await fetch(`${API}/monthly-trend?period=${period}`, { headers: getAuthHeaders() }).then(r => r.json());
+      const t = await apiFetch(`${API}/monthly-trend?period=${period}`).then(r => r.json());
       setTrend(Array.isArray(t) ? t : []);
     } catch (e) { console.error('Trend fetch error:', e); }
     setTrendLoading(false);
@@ -183,14 +181,10 @@ const AdminDashboard = () => {
     const endsAt = base + ms;
     localStorage.setItem('pesoai_maint_until', String(endsAt));
     localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
-    const token = localStorage.getItem('token');
-    if (token) {
-      fetch('http://localhost:5000/api/maintenance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ active: true, endsAt }),
-      }).catch(() => {});
-    }
+    apiFetch('/api/maintenance', {
+      method: 'POST',
+      body: JSON.stringify({ active: true, endsAt }),
+    }).catch(() => {});
     window.dispatchEvent(new Event('pesoai_maint_change'));
   };
 
@@ -251,7 +245,7 @@ const AdminDashboard = () => {
   const riskCount    = (level) => allRiskUsers.filter(u => u.risk_level === level).length;
   const top6         = categories.slice(0, 6);
   const top6Total    = top6.reduce((s, c) => s + Number(c.total_spent || 0), 0);
-  const fullName     = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+  const fullName     = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '�';
   const anomalies = detectAnomalies({
     transactions: kpis?.recent_transactions ?? [],
     expensesTrend: trend,
@@ -296,7 +290,7 @@ const AdminDashboard = () => {
 
       <div style={{ padding: '24px 28px', maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* ── HEADER ── */}
+        {/* -- HEADER -- */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 10, fontWeight: 800, color: '#6366F1', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 4 }}>Admin Panel</div>
@@ -310,7 +304,7 @@ const AdminDashboard = () => {
             )}
           </div>
 
-          {/* ── ACTION BUTTONS ── */}
+          {/* -- ACTION BUTTONS -- */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 
             {/* Export PDF */}
@@ -330,7 +324,7 @@ const AdminDashboard = () => {
                 <rect x="3" y="3" width="18" height="18" rx="2"/>
                 <path d="M3 9h18M9 21V9"/>
               </svg>
-              {xlsxGen ? 'Exporting…' : 'Export Excel'}
+              {xlsxGen ? 'Exporting�' : 'Export Excel'}
             </button>
 
             {/* Refresh */}
@@ -355,7 +349,7 @@ const AdminDashboard = () => {
                 </div>
               </div>
               <div className="px-3 py-2 rounded-xl bg-white border border-rose-100 text-rose-600 text-xs font-black">
-                {maintLeft != null ? `TIME LEFT ${Math.floor(maintLeft / 3600)}h ${Math.floor((maintLeft % 3600) / 60)}m` : 'TIME LEFT —'}
+                {maintLeft != null ? `TIME LEFT ${Math.floor(maintLeft / 3600)}h ${Math.floor((maintLeft % 3600) / 60)}m` : 'TIME LEFT �'}
               </div>
             </div>
 
@@ -418,10 +412,10 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* ── KPI CARDS ── */}
+        {/* -- KPI CARDS -- */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
           {[
-            { title: 'Total Users',   value: kpis?.total_users ?? '—',    icon: <Users size={15}/>,           accent: '#6366F1', bg: '#EEF2FF', trend: null },
+            { title: 'Total Users',   value: kpis?.total_users ?? '�',    icon: <Users size={15}/>,           accent: '#6366F1', bg: '#EEF2FF', trend: null },
             { title: 'Active Users',  value: `${kpis?.pct_active ?? 0}%`, icon: <Activity size={15}/>,        accent: '#22C55E', bg: '#F0FDF4', trend: 'up' },
             { title: 'Avg. Income',   value: peso(kpis?.avg_income),       icon: <Wallet size={15}/>,          accent: '#3B82F6', bg: '#EFF6FF', trend: 'up' },
             { title: 'Avg. Expenses', value: peso(kpis?.avg_expenses),     icon: <ArrowDownCircle size={15}/>, accent: '#EF4444', bg: '#FFF5F5', trend: 'down' },
@@ -453,7 +447,7 @@ const AdminDashboard = () => {
           ))}
         </div>
 
-        {/* ── ROW 2: Trend + Savings ── */}
+        {/* -- ROW 2: Trend + Savings -- */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
           <Card style={{ padding: '20px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
@@ -480,7 +474,7 @@ const AdminDashboard = () => {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
+                  <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `?${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
                   <Tooltip formatter={(v, n) => [peso(v), n.replace('avg_', '').charAt(0).toUpperCase() + n.replace('avg_','').slice(1)]} contentStyle={{ borderRadius: 12, border: '1.5px solid #F1F5F9', fontSize: 11, boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontFamily: 'Sora, sans-serif' }} />
                   <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 10, paddingTop: 10 }} />
                   <Area type="monotone" dataKey="avg_income"   name="Income"   stroke="#22C55E" fill="url(#gInc)" strokeWidth={2.5} dot={false} />
@@ -535,7 +529,7 @@ const AdminDashboard = () => {
           </Card>
         </div>
 
-        {/* ── ROW 3: Categories + Bar + Risk ── */}
+        {/* -- ROW 3: Categories + Bar + Risk -- */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
           <Card style={{ padding: '20px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -585,9 +579,9 @@ const AdminDashboard = () => {
               <ResponsiveContainer width="100%" height={230}>
                 <BarChart data={top6} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
+                  <XAxis type="number" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `?${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
                   <YAxis type="category" dataKey="category" tick={{ fontSize: 9, fontWeight: 700, fill: '#64748B' }} axisLine={false} tickLine={false} width={88} />
-                  <Tooltip formatter={(v, _n, { payload }) => { const share = pct(v, top6Total); return [`${peso(v)}  ·  ${share}% (${classifySpending(share)})`, 'Spent']; }} contentStyle={{ borderRadius: 12, border: '1.5px solid #F1F5F9', fontSize: 11, fontFamily: 'Sora, sans-serif' }} />
+                  <Tooltip formatter={(v, _n, { payload }) => { const share = pct(v, top6Total); return [`${peso(v)}  �  ${share}% (${classifySpending(share)})`, 'Spent']; }} contentStyle={{ borderRadius: 12, border: '1.5px solid #F1F5F9', fontSize: 11, fontFamily: 'Sora, sans-serif' }} />
                   <Bar dataKey="total_spent" radius={[0, 6, 6, 0]} barSize={12}>
                     {top6.map((c, i) => <Cell key={i} fill={c.color_hex} />)}
                   </Bar>

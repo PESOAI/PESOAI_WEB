@@ -6,6 +6,7 @@
     ShieldCheck,
   } from 'lucide-react';
   import { ToggleSwitch, SectionLabel, Divider, DropItem, Badge } from '../UIAtoms';
+  import { apiFetch } from '../../utils/authClient';
 
 export const ProfileDropdown = ({ currentUser, lastLogin, onOpenHub, onNotif, onSwitchAccount, onLogout, onClose, onConfirmMaintenance, onToast }) => {
     const [maint, setMaint] = useState(() => localStorage.getItem('pesoai_maint') === 'true');
@@ -23,14 +24,10 @@ export const ProfileDropdown = ({ currentUser, lastLogin, onOpenHub, onNotif, on
       }
       if (next) {
         localStorage.removeItem('pesoai_maint_until');
-        const token = localStorage.getItem('token');
-        if (token) {
-          fetch('http://localhost:5000/api/maintenance', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ active: true, endsAt: null }),
-          }).catch(() => {});
-        }
+        apiFetch('/api/maintenance', {
+          method: 'POST',
+          body: JSON.stringify({ active: true, endsAt: null }),
+        }).catch(() => {});
         if (typeof BroadcastChannel !== 'undefined') {
           try {
             const bc = new BroadcastChannel('pesoai_maint');
@@ -40,14 +37,10 @@ export const ProfileDropdown = ({ currentUser, lastLogin, onOpenHub, onNotif, on
         }
       } else {
         localStorage.removeItem('pesoai_maint_until');
-        const token = localStorage.getItem('token');
-        if (token) {
-          fetch('http://localhost:5000/api/maintenance', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ active: false }),
-          }).catch(() => {});
-        }
+        apiFetch('/api/maintenance', {
+          method: 'POST',
+          body: JSON.stringify({ active: false }),
+        }).catch(() => {});
         if (typeof BroadcastChannel !== 'undefined') {
           try {
             const bc = new BroadcastChannel('pesoai_maint');

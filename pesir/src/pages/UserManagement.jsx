@@ -9,6 +9,8 @@ import { StaffActivityMonitor } from '../components/hub/StaffActivityMonitor';
 import { generateUsersPDF  } from '../pdf/usersPDF';
 import { generateUsersXLSX } from '../pdf/usersExport';
 import logo from '../assets/logo.png';
+import { apiFetch } from '../utils/authClient';
+import { getCurrentUser } from '../utils/clientSession';
 
 const UserManagement = () => {
   const [users,        setUsers]        = useState([]);
@@ -18,7 +20,7 @@ const UserManagement = () => {
   const [pdfBusy,      setPdfBusy]      = useState(false);
   const [xlsxBusy,     setXlsxBusy]    = useState(false);
   const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
-  const currentUser = JSON.parse(localStorage.getItem('currentUser')) || {};
+  const currentUser = getCurrentUser() || {};
   const canManageUsers = currentUser.role === 'Main Admin' || currentUser.role === 'Super Admin';
 
   const searchInputRef = useRef(null);
@@ -41,10 +43,7 @@ const UserManagement = () => {
 
   const fetchUsers = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res   = await fetch('http://localhost:5000/api/users', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await apiFetch('http://localhost:5000/api/users');
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) { console.error('Error fetching users:', err); }
@@ -76,13 +75,9 @@ const UserManagement = () => {
     });
     if (!ok) return;
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:5000/api/users/${userId}`, {
+      const res = await apiFetch(`http://localhost:5000/api/users/${userId}`, {
         method:  'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ onboarding_completed: newOnboarding }),
       });
       if (res.ok) {
