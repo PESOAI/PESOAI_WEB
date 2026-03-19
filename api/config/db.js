@@ -1,3 +1,5 @@
+// api/config/db.js
+// PostgreSQL connection and startup schema checks.
 import pg from 'pg';
 import { DB_CONFIG } from './index.js';
 
@@ -33,6 +35,24 @@ export async function initSchema() {
         target_type VARCHAR(50) DEFAULT 'general',
         created_at  TIMESTAMPTZ DEFAULT NOW()
       )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.admin_refresh_tokens (
+        id            SERIAL PRIMARY KEY,
+        admin_id      INTEGER NOT NULL REFERENCES public.admins(admin_id) ON DELETE CASCADE,
+        token_hash    TEXT NOT NULL UNIQUE,
+        expires_at    TIMESTAMPTZ NOT NULL,
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        revoked_at    TIMESTAMPTZ
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_admin_refresh_tokens_admin_id
+      ON public.admin_refresh_tokens (admin_id)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_admin_refresh_tokens_token_hash
+      ON public.admin_refresh_tokens (token_hash)
     `);
     await pool.query(`
       ALTER TABLE public.admins

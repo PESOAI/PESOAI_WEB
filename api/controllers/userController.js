@@ -1,3 +1,5 @@
+// api/controllers/userController.js
+// User directory, profile updates, and admin analytics handlers.
 import pool from '../config/db.js';
 import { HTTP, SAVINGS_DISTRIBUTION_COLORS } from '../constants/index.js';
 
@@ -54,32 +56,21 @@ export const getUserById = async (req, res) => {
 export const updateUser = async (req, res) => {
   const { id } = req.params;
   const { onboarding_completed, location } = req.body;
-
-  const fields = [];
-  const values = [];
-  let idx = 1;
-
-  if (typeof onboarding_completed === 'boolean') {
-    fields.push(`onboarding_completed = $${idx++}`);
-    values.push(onboarding_completed);
-  }
-  if (typeof location === 'string') {
-    fields.push(`location = $${idx++}`);
-    values.push(location);
-  }
-
-  fields.push(`last_active_at = NOW()`);
-
-  if (fields.length === 1)
+  const hasOnboarding = typeof onboarding_completed === 'boolean';
+  const hasLocation = typeof location === 'string';
+  if (!hasOnboarding && !hasLocation) {
     return res.status(HTTP.BAD_REQUEST).json({ message: 'No valid fields provided to update' });
-
-  values.push(id);
+  }
 
   try {
     const result = await pool.query(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}
+      `UPDATE users
+       SET onboarding_completed = CASE WHEN $1::boolean THEN $2::boolean ELSE onboarding_completed END,
+           location = CASE WHEN $3::boolean THEN $4::text ELSE location END,
+           last_active_at = NOW()
+       WHERE id = $5
        RETURNING id, first_name, last_name, onboarding_completed, location, last_active_at`,
-      values
+      [hasOnboarding, Boolean(onboarding_completed), hasLocation, location ?? null, id]
     );
     if (result.rows.length === 0)
       return res.status(HTTP.NOT_FOUND).json({ message: 'User not found' });
@@ -319,16 +310,6 @@ export const getMonthlyTrend = async (req, res) => {
 export const getSavingsDistribution = async (req, res) => {
   const { period = 'monthly' } = req.query;
 
-  let dateFilter = '';
-  if (period === 'daily') {
-    dateFilter = "WHERE transaction_date >= NOW() - INTERVAL '13 days'";
-  } else if (period === 'weekly') {
-    dateFilter = "WHERE transaction_date >= NOW() - INTERVAL '7 weeks'";
-  } else {
-    dateFilter = `WHERE EXTRACT(MONTH FROM transaction_date) = EXTRACT(MONTH FROM NOW())
-                    AND EXTRACT(YEAR  FROM transaction_date) = EXTRACT(YEAR  FROM NOW())`;
-  }
-
   try {
     const result = await pool.query(`
       SELECT
@@ -344,10 +325,18 @@ export const getSavingsDistribution = async (req, res) => {
           - SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END))
           / NULLIF(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) AS ratio
         FROM transactions
-        ${dateFilter}
+        WHERE (
+          ($1::text = 'daily' AND transaction_date >= NOW() - INTERVAL '13 days')
+          OR ($1::text = 'weekly' AND transaction_date >= NOW() - INTERVAL '7 weeks')
+          OR (
+            $1::text = 'monthly'
+            AND EXTRACT(MONTH FROM transaction_date) = EXTRACT(MONTH FROM NOW())
+            AND EXTRACT(YEAR FROM transaction_date) = EXTRACT(YEAR FROM NOW())
+          )
+        )
         GROUP BY user_id
       ) sub
-    `);
+    `, [period]);
 
     const r = result.rows[0];
     res.json([

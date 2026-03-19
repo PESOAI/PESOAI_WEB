@@ -1,5 +1,8 @@
+// api/server.js
+// Express app bootstrap and middleware registration.
 import express from 'express';
 import cors    from 'cors';
+import cookieParser from 'cookie-parser';
 import { CORS_ORIGINS } from './config/index.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import authRoutes from './routes/auth.js';
@@ -9,13 +12,13 @@ import maintenanceRoutes from './routes/maintenance.js';
 
 const app = express();
 
+app.use(cookieParser());
 app.use(cors({
-  origin:         CORS_ORIGINS,
+  origin: (origin, callback) => callback(null, true),
+  credentials:    true,
   methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials:    true,
 }));
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 

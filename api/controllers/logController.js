@@ -1,3 +1,5 @@
+// api/controllers/logController.js
+// System log create/read/delete handlers.
 import pool from '../config/db.js';
 import { HTTP, ROLES, LOG_LIMIT } from '../constants/index.js';
 
@@ -20,7 +22,8 @@ export const createLog = async (req, res) => {
 export const getLogs = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT ${LOG_LIMIT}`
+      'SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT $1',
+      [LOG_LIMIT]
     );
     res.json(result.rows || []);
   } catch (err) {

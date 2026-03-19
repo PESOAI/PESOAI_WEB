@@ -1,53 +1,87 @@
-import { HTTP, PASSWORD_MIN_LEN, AVATAR_MAX_SIZE, ROLES } from '../constants/index.js';
+// api/validators/authValidator.js
+// Auth-route request validation and sanitization chains.
+import { body, param } from 'express-validator';
+import { handleValidation } from '../middleware/validationMiddleware.js';
+import { ROLES } from '../constants/index.js';
 
-export const validateLogin = (req, res, next) => {
-  const username = (req.body?.username || '').trim();
-  const password = (req.body?.password || '').trim();
-  if (!username || !password)
-    return res.status(HTTP.BAD_REQUEST).json({ message: 'Username and password are required' });
-  req.body.username = username;
-  req.body.password = password;
-  next();
-};
+const passwordRules = (field) =>
+  body(field)
+    .isString().withMessage('Password must be a string')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/[A-Z]/).withMessage('Password must include an uppercase letter')
+    .matches(/\d/).withMessage('Password must include a number')
+    .matches(/[^A-Za-z0-9]/).withMessage('Password must include a symbol');
 
-export const validateChangePassword = (req, res, next) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword)
-    return res.status(HTTP.BAD_REQUEST).json({ message: 'Both current and new password are required' });
-  if (newPassword.length < PASSWORD_MIN_LEN)
-    return res.status(HTTP.BAD_REQUEST).json({ message: `New password must be at least ${PASSWORD_MIN_LEN} characters` });
-  next();
-};
+export const validateLogin = [
+  body('username')
+    .trim()
+    .notEmpty().withMessage('Username is required')
+    .isLength({ min: 3, max: 100 }).withMessage('Username must be between 3 and 100 characters')
+    .custom((value) => {
+      if (!value.includes('@')) return true;
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    }).withMessage('Username must be a valid email when using email login')
+    .escape(),
+  body('password')
+    .isString().withMessage('Password is required')
+    .notEmpty().withMessage('Password is required'),
+  handleValidation,
+];
 
-export const validateAvatar = (req, res, next) => {
-  const { avatar } = req.body;
-  if (!avatar)
-    return res.status(HTTP.BAD_REQUEST).json({ message: 'No avatar data provided' });
-  if (!avatar.startsWith('data:image/'))
-    return res.status(HTTP.BAD_REQUEST).json({ message: 'Invalid image format' });
-  if (avatar.length > AVATAR_MAX_SIZE)
-    return res.status(HTTP.PAYLOAD_TOO_LARGE).json({ message: 'Image too large. Please use an image under 2MB.' });
-  next();
-};
+export const validateChangePassword = [
+  body('currentPassword')
+    .isString().withMessage('Current password is required')
+    .notEmpty().withMessage('Current password is required'),
+  passwordRules('newPassword'),
+  handleValidation,
+];
 
-export const validateDisplayName = (req, res, next) => {
-  const { displayName } = req.body;
-  if (!displayName || !displayName.trim())
-    return res.status(HTTP.BAD_REQUEST).json({ message: 'displayName is required' });
-  req.body.displayName = displayName.trim();
-  next();
-};
+export const validateAvatar = [
+  body('avatar')
+    .isString().withMessage('Avatar is required')
+    .notEmpty().withMessage('Avatar is required')
+    .custom((value) => value.startsWith('data:image/')).withMessage('Avatar must be an image data URL')
+    .isLength({ max: 2_800_000 }).withMessage('Avatar image is too large'),
+  handleValidation,
+];
 
-export const validateCreateAdmin = (req, res, next) => {
-  const { role } = req.body;
-  if (!Object.values(ROLES).includes(role))
-    return res.status(HTTP.BAD_REQUEST).json({ message: "Invalid role. Must be 'Main Admin' or 'Staff Admin'" });
-  next();
-};
+export const validateDisplayName = [
+  body('displayName')
+    .trim()
+    .notEmpty().withMessage('displayName is required')
+    .isLength({ min: 2, max: 100 }).withMessage('displayName must be between 2 and 100 characters')
+    .escape(),
+  handleValidation,
+];
 
-export const validateAuditLog = (req, res, next) => {
-  const { action } = req.body;
-  if (!action)
-    return res.status(HTTP.BAD_REQUEST).json({ message: 'action is required' });
-  next();
-};
+export const validateCreateAdmin = [
+  body('username')
+    .trim()
+    .notEmpty().withMessage('Username is required')
+    .isLength({ min: 3, max: 100 }).withMessage('Username must be between 3 and 100 characters')
+    .escape(),
+  passwordRules('password'),
+  body('role')
+    .trim()
+    .isIn(Object.values(ROLES)).withMessage(`Invalid role. Must be one of: ${Object.values(ROLES).join(', ')}`),
+  handleValidation,
+];
+
+export const validateDeleteAdmin = [
+  param('id').isInt({ min: 1 }).withMessage('Admin id must be a positive integer').toInt(),
+  handleValidation,
+];
+
+export const validateAuditLog = [
+  body('action')
+    .trim()
+    .notEmpty().withMessage('action is required')
+    .isLength({ min: 3, max: 300 }).withMessage('action must be between 3 and 300 characters')
+    .escape(),
+  body('target_type')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 50 }).withMessage('target_type must be between 2 and 50 characters')
+    .escape(),
+  handleValidation,
+];
