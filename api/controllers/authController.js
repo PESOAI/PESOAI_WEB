@@ -36,19 +36,21 @@ export async function safeAudit(adminId, action, targetType = 'admin') {
   }
 }
 
+// ── FIX: added avatar to query ──────────────────────────────
 const getAdminForSession = async (adminId) => {
   const result = await pool.query(
-    'SELECT admin_id, username, display_name, role FROM admins WHERE admin_id = $1',
+    'SELECT admin_id, username, display_name, role, avatar FROM admins WHERE admin_id = $1',
     [adminId]
   );
   if (!result.rows.length) return null;
 
   const row = result.rows[0];
   return {
-    id: row.admin_id,
-    username: row.username,
+    id:           row.admin_id,
+    username:     row.username,
     display_name: row.display_name,
-    role: row.role,
+    role:         row.role,
+    avatar:       row.avatar || null, // ← FIX: include avatar
   };
 };
 
@@ -56,8 +58,9 @@ export const login = async (req, res) => {
   const { username, password } = req.body;
 
   try {
+    // ── FIX: added avatar to login query ──
     const result = await pool.query(
-      'SELECT admin_id, username, password, role, display_name FROM admins WHERE username = $1',
+      'SELECT admin_id, username, password, role, display_name, avatar FROM admins WHERE username = $1',
       [username]
     );
 
@@ -74,13 +77,14 @@ export const login = async (req, res) => {
     }
 
     const sessionAdmin = {
-      id: admin.admin_id,
-      name: admin.username,
-      role: admin.role,
+      id:           admin.admin_id,
+      name:         admin.username,
+      role:         admin.role,
       display_name: admin.display_name,
+      avatar:       admin.avatar || null, // ← FIX: include avatar
     };
 
-    const accessToken = signAccessToken(sessionAdmin);
+    const accessToken  = signAccessToken(sessionAdmin);
     const refreshToken = signRefreshToken(sessionAdmin);
     await persistRefreshToken(sessionAdmin.id, refreshToken);
 
@@ -91,10 +95,11 @@ export const login = async (req, res) => {
 
     return res.json(
       toSafeUser({
-        id: sessionAdmin.id,
+        id:           sessionAdmin.id,
         display_name: sessionAdmin.display_name,
-        username: sessionAdmin.name,
-        role: sessionAdmin.role,
+        username:     sessionAdmin.name,
+        role:         sessionAdmin.role,
+        avatar:       sessionAdmin.avatar, // ← FIX: include avatar
       })
     );
   } catch (err) {
@@ -112,14 +117,14 @@ export const refresh = async (req, res) => {
 
   try {
     const payload = verifyRefreshToken(refreshToken);
-    const admin = await getAdminForSession(payload.sub);
+    const admin   = await getAdminForSession(payload.sub);
     if (!admin) {
       clearAuthCookies(res);
       return res.status(HTTP.UNAUTHORIZED).json({ message: 'Invalid session' });
     }
 
     const rotated = await rotateRefreshToken(refreshToken, {
-      id: admin.id,
+      id:   admin.id,
       name: admin.username,
       role: admin.role,
     });
@@ -191,10 +196,11 @@ export const updateDisplayName = async (req, res) => {
   }
 };
 
+// ── FIX: added avatar to getMe query ────────────────────────
 export const getMe = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT admin_id, username, role, display_name FROM admins WHERE admin_id = $1',
+      'SELECT admin_id, username, role, display_name, avatar FROM admins WHERE admin_id = $1',
       [req.admin.id]
     );
     if (result.rows.length === 0) {
@@ -278,7 +284,10 @@ export const changePassword = async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
   try {
-    const result = await pool.query('SELECT admin_id, password FROM admins WHERE admin_id = $1', [req.admin.id]);
+    const result = await pool.query(
+      'SELECT admin_id, password FROM admins WHERE admin_id = $1',
+      [req.admin.id]
+    );
     if (result.rows.length === 0) {
       return res.status(HTTP.NOT_FOUND).json({ message: 'Admin not found' });
     }
@@ -308,7 +317,7 @@ export const getAuditLogs = async (_req, res) => {
       `SELECT
          al.id, al.action, al.target_type, al.created_at,
          a.username AS admin_name,
-         a.role AS admin_role
+         a.role     AS admin_role
        FROM admin_logs al
        LEFT JOIN admins a ON a.admin_id = al.admin_id
        ORDER BY al.created_at DESC
