@@ -1,21 +1,12 @@
 // components/hub/StaffActivityMonitor.jsx — PESO AI
 import React, { useEffect, useState } from 'react';
 
-export const StaffActivityMonitor = () => {
-  const [kicks, setKicks] = useState([]);
+export const StaffActivityMonitor = ({ kicks = [] }) => {
+  const [visibleKicks, setVisibleKicks] = useState([]);
 
   useEffect(() => {
-    const load = () => {
-      try {
-        const raw = JSON.parse(localStorage.getItem('pesoai_maint_kicks')) || [];
-        setKicks(raw);
-      } catch { setKicks([]); }
-    };
-    load();
-    const onStorage = (e) => { if (e.key === 'pesoai_maint_kicks') load(); };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    setVisibleKicks(Array.isArray(kicks) ? kicks : []);
+  }, [kicks]);
 
   return (
     <div className="mb-6 bg-white border border-rose-100 rounded-2xl p-5 shadow-sm">
@@ -25,11 +16,11 @@ export const StaffActivityMonitor = () => {
           <h2 className="text-lg font-bold text-slate-800">Staff Activity Monitor</h2>
         </div>
         <span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-1 rounded-full">
-          {kicks.length} events
+          {visibleKicks.length} events
         </span>
       </div>
 
-      {kicks.length === 0 ? (
+      {visibleKicks.length === 0 ? (
         <p className="text-sm text-slate-500">No staff admins are currently locked out.</p>
       ) : (
         <div className="overflow-x-auto">
@@ -42,7 +33,7 @@ export const StaffActivityMonitor = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {kicks.slice(0, 8).map((k, i) => (
+              {visibleKicks.slice(0, 8).map((k, i) => (
                 <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-4 py-3 text-sm font-bold text-slate-800">{k.name || 'Staff Admin'}</td>
                   <td className="px-4 py-3 text-xs font-semibold text-slate-500">{k.role || 'Staff Admin'}</td>
@@ -56,4 +47,3 @@ export const StaffActivityMonitor = () => {
     </div>
   );
 };
-

@@ -17,11 +17,12 @@ const BASE = 'http://localhost:5000';
 
 // ─── My Profile Panel ────────────────────────────────────────
 export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
+  const username = currentUser.username || currentUser.name;
   // ── FIX: prefer DB display_name → then localStorage fallback → then username ──
   const storedDisplay =
     currentUser.display_name ||
-    sessionStorage.getItem(`displayName_${currentUser.name}`) ||
-    currentUser.name;
+    sessionStorage.getItem(`displayName_${username}`) ||
+    username;
 
   const [editing, setEditing] = useState(false);
   const [form,    setForm]    = useState({ name: storedDisplay });
@@ -50,7 +51,7 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
 
   const save = async () => {
     // ── FIX: persist display name to DB so Main Admin sees updated names ──
-    const newDisplayName = form.name.trim() || currentUser.name;
+    const newDisplayName = form.name.trim() || username;
     try {
       // 1. Save display name to DB
       const dnRes = await apiFetch(`${BASE}/api/auth/admins/display-name`, {
@@ -63,7 +64,7 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
       }
 
       // 2. Update localStorage (kept for backward compat + offline resilience)
-      sessionStorage.setItem(`displayName_${currentUser.name}`, newDisplayName);
+      sessionStorage.setItem(`displayName_${username}`, newDisplayName);
       const stored  = getCurrentUser() || {};
       const updated = { ...stored, displayName: newDisplayName, display_name: newDisplayName, avatar };
       setCurrentUser(updated);
@@ -72,7 +73,7 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
       onAvatarUpdate(avatar, newDisplayName);
 
       // 4. Audit log — only if name actually changed
-      const prevName = currentUser.display_name || currentUser.displayName || currentUser.name;
+      const prevName = currentUser.display_name || currentUser.displayName || username;
       if (newDisplayName !== prevName) {
         await apiFetch(`${BASE}/api/auth/audit-logs`, {
           method: 'POST',
@@ -147,7 +148,7 @@ export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Username (Login)</label>
           <div className="flex items-center gap-2 p-3 rounded-xl border border-slate-100 bg-slate-50">
             <span className="text-slate-400"><Mail size={14} /></span>
-            <span className="flex-1 text-sm font-semibold text-slate-900">{currentUser.name}</span>
+            <span className="flex-1 text-sm font-semibold text-slate-900">{username}</span>
             <Badge color="slate">Read-only</Badge>
           </div>
         </div>

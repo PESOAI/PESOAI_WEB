@@ -1,9 +1,9 @@
-// pesir/src/pages/AdminDashboard.jsx
-// Analytics dashboard for admins with secure cookie-auth API data loading.
+﻿// pesir/src/pages/AdminDashboard.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Users, Activity, Wallet, ArrowDownCircle, PieChart as PieIcon,
-  AlertTriangle, TrendingUp, TrendingDown, RefreshCw, FileText,
+  Users, Activity, Wallet, ArrowDownCircle, PiggyBank,
+  TrendingUp, TrendingDown, RefreshCw, Info,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -21,12 +21,104 @@ import { generateDashboardXLSX } from '../pdf/dashboardAnalyticsExport';
 
 import PdfExportModal from '../components/PdfExportModal';
 import { EmptyState, Card, Dropdown } from '../components/UIAtoms';
-import { detectAnomalies } from '../utils/AnomalyDetector';
 import { useConfirm, ConfirmModal, Toast } from '../components/GlobalConfirmModal';
 import { apiFetch } from '../utils/authClient';
-import { getCurrentUser } from '../utils/clientSession';
 
 const API = 'http://localhost:5000/api/admin';
+
+// ── MASTER DESIGN TOKENS ────────────────────────────────────
+const T = {
+  blue:    { base: '#3B82F6', bg: '#EFF6FF', light: '#DBEAFE', text: '#1D4ED8' },
+  teal:    { base: '#14B8A6', bg: '#F0FDFA', light: '#CCFBF1', text: '#0F766E' },
+  emerald: { base: '#10B981', bg: '#ECFDF5', light: '#A7F3D0', text: '#047857' },
+  rose:    { base: '#EF4444', bg: '#FFF5F5', light: '#FECACA', text: '#B91C1C' },
+  amber:   { base: '#F59E0B', bg: '#FFFBEB', light: '#FDE68A', text: '#D97706' },
+  indigo:  { base: '#6366F1', bg: '#EEF2FF', light: '#C7D2FE', text: '#4338CA' },
+  violet:  { base: '#7C3AED', bg: '#F5F3FF', light: '#DDD6FE', text: '#5B21B6' },
+  pink:    { base: '#EC4899', bg: '#FDF2F8', light: '#FBCFE8', text: '#9D174D' },
+  slate:   { base: '#64748B', bg: '#F8FAFC', light: '#E2E8F0', text: '#334155' },
+
+  // Chart line colors — match KPI semantic colors
+  income:   '#10B981',  // Emerald Green
+  expenses: '#EF4444',  // Rose Red
+  savings:  '#F59E0B',  // Amber Gold
+
+  riskHigh: { base: '#EF4444', bg: '#FFF5F5', border: '#FECACA' },
+  riskMed:  { base: '#F59E0B', bg: '#FFFBEB', border: '#FDE68A' },
+  riskLow:  { base: '#10B981', bg: '#F0FDF4', border: '#A7F3D0' },
+
+  surface:    '#FFFFFF',
+  surfaceAlt: '#F8FAFC',
+  border:     '#F1F5F9',
+  borderMid:  '#E2E8F0',
+  textBase:   '#0F172A',
+  textMid:    '#334155',
+  textSub:    '#64748B',
+  textMuted:  '#94A3B8',
+
+  radius:   '16px',
+  shadow:   '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
+  shadowMd: '0 4px 16px rgba(15,23,42,0.08), 0 1px 4px rgba(15,23,42,0.04)',
+};
+
+// ── GLOBAL CATEGORY COLOR MAP ────────────────────────────────
+// Colors for known categories plus a fixed fallback for any new label.
+const CATEGORY_COLOR_MAP = {
+  'Bills & Utilities': '#c0392b',
+  'Groceries':         '#d44d2a',
+  'Shopping':          '#e0622a',
+  'Transportation':    '#e8782a',
+  'Food & Dining':     '#f0922a',
+  'Health':            '#5a8a3c',
+  'Entertainment':     '#3a7abf',
+};
+
+const CATEGORY_COLOR_CYCLE = [
+  '#c0392b', '#d44d2a', '#e0622a', '#e8782a', '#f0922a', '#5a8a3c', '#3a7abf',
+];
+const CATEGORY_COLOR_FALLBACK = '#b85c1a';
+
+const getCategoryColor = (name, index) => {
+  if (!name) return CATEGORY_COLOR_FALLBACK;
+  const normalized = name.trim();
+  return CATEGORY_COLOR_MAP[normalized]
+    ?? CATEGORY_COLOR_CYCLE[index % CATEGORY_COLOR_CYCLE.length]
+    ?? CATEGORY_COLOR_FALLBACK;
+};
+
+const canonicalCategoryName = (label) => {
+  const trimmed = (label ?? '').trim();
+  if (!trimmed) return 'Uncategorized';
+  if (trimmed === 'Bills') return 'Bills & Utilities';
+  if (trimmed === 'Transport') return 'Transportation';
+  if (trimmed === 'Food') return 'Food & Dining';
+  return trimmed;
+};
+
+// ── SAVINGS DISTRIBUTION — Amber-based palette ───────────────
+const SAVINGS_BUCKETS = {
+  'Negative Saver': { color: '#c04a2a', label: 'Deficit (Negative)', bgLight: '#FFF5F5', border: '#FECACA' },
+  'Low Saver':      { color: '#e8a030', label: 'Low (<20% Income)',   bgLight: '#FFFDE7', border: '#FDE68A' },
+  'Mid Saver':      { color: '#3a7abf', label: 'Moderate (20–50%)',   bgLight: '#FFFBEB', border: '#FDE68A' },
+  'High Saver':     { color: '#5a8a3c', label: 'High (>50% Income)',  bgLight: '#FEF3C7', border: '#FCD34D' },
+};
+const SAVINGS_LABEL_MAP = {
+  'Deficit':        'Negative Saver',
+  'Negative Saver': 'Negative Saver',
+  'Low (<20%)':     'Low Saver',
+  'Low Saver':      'Low Saver',
+  'Moderate':       'Mid Saver',
+  'Mid Saver':      'Mid Saver',
+  'High (>50%)':    'High Saver',
+  'High Saver':     'High Saver',
+};
+const SAVINGS_ORDER = ['Negative Saver', 'Low Saver', 'Mid Saver', 'High Saver'];
+
+const getSavingsConfig = (name) => {
+  const key = SAVINGS_LABEL_MAP[name] || name;
+  return SAVINGS_BUCKETS[key] || { color: T.textMuted, label: name, bgLight: T.surfaceAlt, border: T.borderMid };
+};
+const getSavingsColor = (name) => getSavingsConfig(name).color;
 
 const TREND_FILTERS = [
   { label: 'Daily',   value: 'daily'   },
@@ -40,53 +132,76 @@ const RISK_FILTERS = [
   { label: 'Low Risk',    value: 'Low'    },
 ];
 
-const CATEGORY_COLORS = [
-  '#6366F1', '#EF4444', '#F59E0B', '#22C55E', '#3B82F6', '#EC4899',
-];
+const riskColor  = (l) => ({ High: T.riskHigh.base, Medium: T.riskMed.base, Low: T.riskLow.base })[l] ?? T.textMuted;
+const riskBg     = (l) => ({ High: T.riskHigh.bg,   Medium: T.riskMed.bg,   Low: T.riskLow.bg   })[l] ?? T.surfaceAlt;
+const riskBorder = (l) => ({ High: T.riskHigh.border, Medium: T.riskMed.border, Low: T.riskLow.border })[l] ?? T.borderMid;
 
-const riskColor  = (l) => ({ High: '#EF4444', Medium: '#F59E0B', Low: '#22C55E' })[l] ?? '#94A3B8';
-const riskBg     = (l) => ({ High: '#FFF5F5', Medium: '#FFFBEB', Low: '#F0FDF4' })[l] ?? '#F8FAFC';
-const riskBorder = (l) => ({ High: '#FED7D7', Medium: '#FDE68A', Low: '#BBF7D0' })[l] ?? '#E2E8F0';
-
-const BUCKET_COLORS = {
-  'Negative Saver': '#EF4444',
-  'Low Saver':      '#F59E0B',
-  'Mid Saver':      '#6366F1',
-  'High Saver':     '#22C55E',
+const dominantSaverLabel = (dist = []) => {
+  if (!Array.isArray(dist) || dist.length === 0) return 'No Saver Data';
+  const top = [...dist].sort((a, b) => Number(b.value || 0) - Number(a.value || 0))[0];
+  if (!top || Number(top.value || 0) === 0) return 'No Saver Data';
+  return getSavingsConfig(top.name).label;
 };
 
-/* --------------------------------------------------------------
-   ADMIN DASHBOARD
--------------------------------------------------------------- */
+// ── CUSTOM CHART TOOLTIP ────────────────────────────────────
+const ChartTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: T.surface, border: `1.5px solid ${T.borderMid}`, borderRadius: 12, padding: '10px 14px', boxShadow: T.shadowMd, fontFamily: 'Inter, sans-serif', minWidth: 160 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: i < payload.length - 1 ? 5 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.textSub }}>{p.name}</span>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 800, color: p.color }}>{peso(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ── ADMIN DASHBOARD ── */
 const AdminDashboard = () => {
-  const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
-  const [kpis,         setKpis]         = useState(null);
-  const [categories,   setCategories]   = useState([]);
-  const [allRiskUsers, setAllRiskUsers] = useState([]);
-  const [trend,        setTrend]        = useState([]);
-  const [savingsDist,  setSavingsDist]  = useState([]);
-  const [initLoading,  setInitLoading]  = useState(true);
-  const [trendLoading, setTrendLoading] = useState(false);
-  const [lastUpdate,   setLastUpdate]   = useState(null);
-  const [trendFilter,  setTrendFilter]  = useState('monthly');
-  const [riskFilter,   setRiskFilter]   = useState('all');
-  const [showPdf,      setShowPdf]      = useState(false);
-  const [pdfGen,       setPdfGen]       = useState(false);
-  const [xlsxGen,      setXlsxGen]      = useState(false);
-  const [maint,        setMaint]        = useState({ active: false, endsAt: null });
-  const [maintLeft,    setMaintLeft]    = useState(null);
-  const [maintDurVal,  setMaintDurVal]  = useState(1);
-  const [maintDurUnit, setMaintDurUnit] = useState('hours'); // 'minutes' | 'hours'
-  const [maintMode,    setMaintMode]    = useState('extend'); // 'set' | 'extend'
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const trendRef   = useRef(null);
-  const riskRef    = useRef(null);
-  const mountedRef = useRef(false);
+  const { modal, toasts, handleConfirm, handleCancel } = useConfirm();
+  const [kpis,                setKpis]                = useState(null);
+  const [categories,          setCategories]          = useState([]);
+  const [allRiskUsers,        setAllRiskUsers]        = useState([]);
+  const [trend,               setTrend]               = useState([]);
+  const [savingsDist,         setSavingsDist]         = useState([]);
+  const [initLoading,         setInitLoading]         = useState(true);
+  const [trendLoading,        setTrendLoading]        = useState(false);
+  const [lastUpdate,          setLastUpdate]          = useState(null);
+  const [trendFilter,         setTrendFilter]         = useState('monthly');
+  const [riskFilter,          setRiskFilter]          = useState('all');
+  const [showPdf,             setShowPdf]             = useState(false);
+  const [pdfGen,              setPdfGen]              = useState(false);
+  const [xlsxGen,             setXlsxGen]             = useState(false);
+  const [highlightedSection,  setHighlightedSection]  = useState('');
+  const [riskVisibilityPulse, setRiskVisibilityPulse] = useState(false);
 
-  const isMainOrSuper = (() => {
-    const u = getCurrentUser() || {};
-    return u.role === 'Main Admin' || u.role === 'Super Admin';
-  })();
+  const trendRef          = useRef(null);
+  const riskRef           = useRef(null);
+  const mountedRef        = useRef(false);
+  const highlightTimerRef = useRef(null);
+  const riskGlowTimerRef  = useRef(null);
+  const trendSectionRef   = useRef(null);
+  const savingsSectionRef = useRef(null);
+  const expenseSectionRef = useRef(null);
+  const riskSectionRef    = useRef(null);
+
+  useEffect(() => {
+    const params  = new URLSearchParams(location.search);
+    const section = params.get('section');
+    if (!section || initLoading) return;
+    const refMap = { trend: trendSectionRef, savings: savingsSectionRef, expenses: expenseSectionRef, riskUsers: riskSectionRef };
+    const ref = refMap[section];
+    if (ref) { const t = setTimeout(() => focusSection(section, ref), 300); return () => clearTimeout(t); }
+  }, [location.search, initLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchBase = useCallback(async (period = 'monthly') => {
     try {
@@ -97,22 +212,49 @@ const AdminDashboard = () => {
         apiFetch(`${API}/savings-distribution?period=${period}`).then(r => r.json()),
       ]);
       setKpis(k);
-      setCategories((Array.isArray(c) ? c : []).map((cat, i) => ({
+
+      // Normalize aliases → merge duplicates → sort desc → apply colors
+      const rawCategories = Array.isArray(c) ? c : [];
+      const merged = new Map();
+      rawCategories.forEach(cat => {
+        const label = canonicalCategoryName(cat.category);
+        const total = Number(cat.total_spent ?? cat.total ?? 0);
+        if (merged.has(label)) {
+          const existing = merged.get(label);
+          merged.set(label, {
+            ...existing,
+            total_spent: Number(existing.total_spent || 0) + total,
+          });
+        } else {
+          merged.set(label, { ...cat, category: label, total_spent: total });
+        }
+      });
+      const sorted = Array.from(merged.values()).sort((a, b) => Number(b.total_spent || 0) - Number(a.total_spent || 0));
+      setCategories(sorted.map((cat, i) => ({
         ...cat,
-        color_hex: cat.color_hex || CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+        color_hex: getCategoryColor(cat.category, i),
       })));
+
       setAllRiskUsers((Array.isArray(h) ? h : []).map(u => {
         const ratio = Number(u.expense_ratio) || computeExpenseRatio(u.total_income, u.total_expenses);
         return { ...u, expense_ratio: isNaN(ratio) ? 0 : ratio, risk_level: computeRisk(ratio) };
       }));
+
       const rawS = Array.isArray(s) ? s : [];
+      let processed = [];
       if (rawS.every(d => 'value' in d && 'name' in d)) {
-        setSavingsDist(rawS);
+        processed = rawS.map(item => ({ ...item, color: getSavingsColor(item.name) }));
       } else {
         const counts = { 'Negative Saver': 0, 'Low Saver': 0, 'Mid Saver': 0, 'High Saver': 0 };
         rawS.forEach(u => { const sr = computeSavingsRate(u.total_income, u.total_expenses); counts[classifySaver(sr)]++; });
-        setSavingsDist(Object.entries(counts).map(([name, value]) => ({ name, value, color: BUCKET_COLORS[name] })));
+        processed = Object.entries(counts).map(([name, value]) => ({ name, value, color: getSavingsColor(name) }));
       }
+      processed.sort((a, b) => {
+        const ai = SAVINGS_ORDER.indexOf(SAVINGS_LABEL_MAP[a.name] || a.name);
+        const bi = SAVINGS_ORDER.indexOf(SAVINGS_LABEL_MAP[b.name] || b.name);
+        return ai - bi;
+      });
+      setSavingsDist(processed);
       setLastUpdate(new Date().toLocaleTimeString());
     } catch (e) { console.error('Base fetch error:', e); }
   }, []);
@@ -141,81 +283,6 @@ const AdminDashboard = () => {
     fetchBase(trendFilter);
   }, [trendFilter, fetchTrend, fetchBase]);
 
-  useEffect(() => {
-    const sync = () => {
-      const active = localStorage.getItem('pesoai_maint') === 'true';
-      const endsAt = Number(localStorage.getItem('pesoai_maint_until'));
-      setMaint({ active, endsAt: Number.isFinite(endsAt) ? endsAt : null });
-    };
-    sync();
-    const onStorage = (e) => { if (e.key && e.key.startsWith('pesoai_maint')) sync(); };
-    const onLocal = () => sync();
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('pesoai_maint_change', onLocal);
-    const poll = setInterval(sync, 1500);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('pesoai_maint_change', onLocal);
-      clearInterval(poll);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!maint.active || !maint.endsAt) { setMaintLeft(null); return; }
-    const tick = () => {
-      const sec = Math.max(0, Math.ceil((maint.endsAt - Date.now()) / 1000));
-      setMaintLeft(sec);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [maint.active, maint.endsAt]);
-
-
-  const updateMaintenanceTimer = () => {
-    const v = Number(maintDurVal);
-    if (!Number.isFinite(v) || v <= 0) return;
-    const ms = maintDurUnit === 'minutes' ? v * 60 * 1000 : v * 60 * 60 * 1000;
-    if (maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)) return;
-    const base = maintMode === 'extend' && Number.isFinite(maint.endsAt) ? maint.endsAt : Date.now();
-    const endsAt = base + ms;
-    localStorage.setItem('pesoai_maint_until', String(endsAt));
-    localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
-    apiFetch('/api/maintenance', {
-      method: 'POST',
-      body: JSON.stringify({ active: true, endsAt }),
-    }).catch(() => {});
-    window.dispatchEvent(new Event('pesoai_maint_change'));
-  };
-
-  const handleApplyDuration = async () => {
-    const v = Number(maintDurVal);
-    if (!Number.isFinite(v) || v <= 0) {
-      showToast('Please set a valid duration first.', 'warning');
-      return;
-    }
-    if (maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)) {
-      showToast('Start the timer first before extending.', 'warning');
-      return;
-    }
-    const unitLabel = maintDurUnit === 'minutes' ? 'minutes' : 'hours';
-    const actionLabel = maintMode === 'extend' ? 'Extend' : 'Apply';
-    const ok = await confirm({
-      variant: 'maintenance',
-      title: `${actionLabel} Maintenance Duration?`,
-      subtitle: maintMode === 'extend'
-        ? `This will add ${v} ${unitLabel} to the current timer.`
-        : `This will set the maintenance timer to ${v} ${unitLabel}.`,
-      subject: `Duration: ${v} ${unitLabel}`,
-    });
-    if (!ok) return;
-    updateMaintenanceTimer();
-    showToast(
-      maintMode === 'extend' ? 'Maintenance time extended.' : 'Maintenance duration applied.',
-      'success'
-    );
-  };
-
   const handleRefresh = async () => {
     setInitLoading(true);
     await Promise.all([fetchBase(trendFilter), fetchTrend(trendFilter)]);
@@ -225,418 +292,555 @@ const AdminDashboard = () => {
   const handleExportPdf = async (selected) => {
     setPdfGen(true);
     try {
-      if (selected.length > 0) {
+      if (selected.length > 0)
         await generatePDF(selected, { kpis, allRiskUsers, trendFilter, trend, savingsDist, categories }, logo);
-      }
     } catch (e) { console.error('PDF error:', e); }
-    setPdfGen(false);
-    setShowPdf(false);
+    setPdfGen(false); setShowPdf(false);
   };
 
   const handleExportXLSX = async () => {
     setXlsxGen(true);
-    try {
-      await generateDashboardXLSX({ kpis, allRiskUsers, trendFilter, trend, savingsDist, categories });
-    } catch (e) { console.error('Excel export error:', e); }
+    const exportSavingsDist = Array.isArray(savingsDist) && savingsDist.some((d) => Number(d?.value || 0) > 0)
+      ? savingsDist
+      : (() => {
+          const counts = { 'Deficit': 0, 'Low (<20%)': 0, 'Moderate': 0, 'High (>50%)': 0 };
+          (Array.isArray(allRiskUsers) ? allRiskUsers : []).forEach((u) => {
+            const sr = computeSavingsRate(u.total_income, u.total_expenses);
+            const bucket = classifySaver(sr);
+            if (bucket === 'Negative Saver') counts['Deficit'] += 1;
+            else if (bucket === 'Low Saver') counts['Low (<20%)'] += 1;
+            else if (bucket === 'Mid Saver') counts['Moderate'] += 1;
+            else if (bucket === 'High Saver') counts['High (>50%)'] += 1;
+          });
+          return Object.entries(counts).map(([name, value]) => ({ name, value }));
+        })();
+    try { await generateDashboardXLSX({ kpis, allRiskUsers, trendFilter, trend, savingsDist: exportSavingsDist, categories }); }
+    catch (e) { console.error('Excel export error:', e); }
     setXlsxGen(false);
   };
 
+  const focusSection = useCallback((key, ref) => {
+    if (!ref?.current) return;
+    ref.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setHighlightedSection(key);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightedSection(''), 2200);
+  }, []);
+
+  useEffect(() => () => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    if (riskGlowTimerRef.current)  clearTimeout(riskGlowTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!riskSectionRef.current || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      setRiskVisibilityPulse(false);
+      requestAnimationFrame(() => setRiskVisibilityPulse(true));
+      if (riskGlowTimerRef.current) clearTimeout(riskGlowTimerRef.current);
+      riskGlowTimerRef.current = setTimeout(() => setRiskVisibilityPulse(false), 2000);
+    }, { threshold: 0.35 });
+    observer.observe(riskSectionRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   const filteredRisk = riskFilter === 'all' ? allRiskUsers : allRiskUsers.filter(u => u.risk_level === riskFilter);
   const riskCount    = (level) => allRiskUsers.filter(u => u.risk_level === level).length;
-  const top6         = categories.slice(0, 6);
+  const top6 = (() => {
+    const base = categories
+      .filter((c) => Number(c.total_spent || 0) > 0)
+      .slice(0, 6);
+    const groceries = categories.find((c) => c.category === 'Groceries');
+    if (!groceries) return base;
+    if (base.some((c) => c.category === 'Groceries')) return base;
+    return [...base, groceries];
+  })();
   const top6Total    = top6.reduce((s, c) => s + Number(c.total_spent || 0), 0);
-  const fullName     = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '�';
-  const anomalies = detectAnomalies({
-    transactions: kpis?.recent_transactions ?? [],
-    expensesTrend: trend,
-    logins: kpis?.recent_logins ?? [],
-    authorizedIps: kpis?.authorized_ips ?? [],
-  });
+  const fullName     = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+  const avatarFallback = (name) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=E2E8F0&color=334155`;
+  const riskAvatarSrc = (u) => u.avatar_url || u.profile_picture || avatarFallback(fullName(u));
+  const trendGradientStops = [
+    ['gInc', T.income],
+    ['gExp', T.expenses],
+  ];
+  const savingsTrend = {
+    line: '#3a7abf',
+    area: 'rgba(58,122,191,0.08)',
+    point: '#3a7abf',
+  };
+
+  const sectionGlowStyle = (key) => highlightedSection === key ? {
+    boxShadow: `0 0 0 2px ${T.indigo.light}, 0 20px 40px rgba(99,102,241,0.12)`,
+    borderColor: T.indigo.light,
+  } : {};
+
+  // KPI Cards — semantic financial colors, no bottom accent bar
+  const kpiCards = [
+    { title: 'Total Users',   value: kpis?.total_users ?? '—',    icon: <Users size={16}/>,          color: T.slate,   trend: null,   tooltip: 'View all users →',            target: () => navigate('/admin/users', { state: { filter: 'All' } }) },
+    { title: 'Active Users',  value: `${kpis?.pct_active ?? 0}%`, icon: <Activity size={16}/>,       color: T.emerald, trend: 'up',   tooltip: 'View active users →',         target: () => navigate('/admin/users', { state: { filter: 'Active' } }) },
+    { title: 'Avg. Income',   value: peso(kpis?.avg_income),      icon: <Wallet size={16}/>,         color: T.emerald, trend: 'up',   tooltip: 'View financial trend ↓',      target: () => focusSection('trend', trendSectionRef) },
+    { title: 'Avg. Expenses', value: peso(kpis?.avg_expenses),    icon: <ArrowDownCircle size={16}/>,color: T.rose,    trend: 'down', tooltip: 'View top spending ↓',         target: () => focusSection('expenses', expenseSectionRef) },
+    { title: 'Avg. Savings',  value: peso(kpis?.avg_savings),     icon: <PiggyBank size={16}/>,      color: T.amber,   trend: 'up',   tooltip: 'View savings distribution ↓', target: () => focusSection('savings', savingsSectionRef) },
+  ];
 
   if (initLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#F8FAFC' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: T.surfaceAlt }}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ width: 44, height: 44, border: '3px solid #E0E7FF', borderTopColor: '#6366F1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-        <p style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.2em', color: '#94A3B8', textTransform: 'uppercase' }}>Loading Dashboard</p>
+        <div style={{ width: 44, height: 44, border: `3px solid ${T.indigo.light}`, borderTopColor: T.indigo.base, borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+        <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', color: T.textMuted, textTransform: 'uppercase', fontFamily: 'Inter, sans-serif' }}>Loading Dashboard</p>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
   return (
-    <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: "'Sora', 'Plus Jakarta Sans', sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: T.surfaceAlt, fontFamily: 'Inter, "Plus Jakarta Sans", sans-serif' }}>
       <Toast toasts={toasts} />
       <ConfirmModal modal={modal} onConfirm={handleConfirm} onCancel={handleCancel} />
-      <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes glowPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.25); }
+          60%  { box-shadow: 0 0 0 10px rgba(99,102,241,0); }
+          100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
+        }
+        @keyframes riskPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.28); }
+          60%  { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+        }
         * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
+        ::-webkit-scrollbar-thumb { background: ${T.borderMid}; border-radius: 99px; }
+        .kpi-card {
+          cursor: pointer;
+          transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+          border: 1.5px solid ${T.border}; border-radius: ${T.radius};
+          background: ${T.surface}; box-shadow: ${T.shadow};
+          position: relative; overflow: hidden;
+        }
+        .kpi-card:hover { transform: translateY(-4px); box-shadow: ${T.shadowMd}; border-color: ${T.borderMid}; }
+        .kpi-card:hover .kpi-hint { opacity: 1; transform: translateY(0); }
+        .kpi-hint {
+          opacity: 0; transform: translateY(5px);
+          transition: opacity 0.18s, transform 0.18s;
+          position: absolute; bottom: 12px; right: 14px;
+          font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
+          color: ${T.textMuted}; text-transform: uppercase; pointer-events: none;
+        }
+        .section-card {
+          background: ${T.surface}; border-radius: ${T.radius};
+          border: 1.5px solid ${T.border}; box-shadow: ${T.shadow};
+          transition: box-shadow 0.25s, border-color 0.25s;
+        }
+        .section-glow-active { animation: glowPulse 1.8s ease; }
+        .risk-row-glow       { animation: riskPulse 1.4s ease; }
+        .ratio-info:hover .risk-ratio-tip { opacity: 1 !important; visibility: visible !important; transform: translateY(0); }
+        .risk-ratio-tip { transform: translateY(6px); }
+        .dashboard-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 24px;
+          align-items: stretch;
+        }
+        .dashboard-col {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        .dashboard-col .section-card {
+          height: 100%;
+        }
+        @media (max-width: 1200px) {
+          .dashboard-grid { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 820px) {
+          .dashboard-grid { grid-template-columns: 1fr; }
+        }
         .action-btn {
           display: flex; align-items: center; gap: 7px;
           padding: 9px 16px; border-radius: 10px;
-          border: 1.5px solid #E2E8F0; background: #fff;
-          color: #334155; font-size: 12px; font-weight: 700;
-          cursor: pointer; font-family: inherit;
-          transition: background 0.15s, border-color 0.15s;
+          border: 1.5px solid ${T.borderMid}; background: ${T.surface};
+          color: ${T.textMid}; font-size: 12px; font-weight: 600;
+          cursor: pointer; font-family: inherit; box-shadow: ${T.shadow};
+          transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
         }
-        .action-btn:hover { background: #F8FAFC; border-color: #CBD5E1; }
-        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .action-btn:hover    { background: ${T.surfaceAlt}; border-color: #CBD5E1; box-shadow: ${T.shadowMd}; }
+        .action-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
       `}</style>
 
       <PdfExportModal open={showPdf} onClose={() => setShowPdf(false)} onExport={handleExportPdf} generating={pdfGen} />
 
-      <div style={{ padding: '24px 28px', maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ padding: '16px 24px', width: '100%', maxWidth: 2000, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* -- HEADER -- */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        {/* ── HEADER ── */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', paddingBottom: 4 }}>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#6366F1', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 4 }}>Admin Panel</div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.03em', lineHeight: 1.2 }}>System Monitoring</h1>
-            {lastUpdate && <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginTop: 4 }}>Last updated at {lastUpdate}</p>}
-            {anomalies.hasAnomalies && (
-              <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#FFF5F5', border: '1px solid #FECACA', color: '#B91C1C', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                <AlertTriangle size={10} />
-                High-Risk Alert
-              </div>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.indigo.text, letterSpacing: '0.18em', textTransform: 'uppercase' }}>Admin Panel</div>
+            </div>
+            <h1 style={{ fontSize: 26, fontWeight: 800, color: T.textBase, margin: 0, letterSpacing: '-0.03em', lineHeight: 1.15 }}>System Monitoring</h1>
+            {lastUpdate && <p style={{ fontSize: 11, color: T.textMuted, fontWeight: 500, marginTop: 5 }}>Last updated at {lastUpdate}</p>}
           </div>
-
-          {/* -- ACTION BUTTONS -- */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-
-            {/* Export PDF */}
-            <button className="action-btn" onClick={() => setShowPdf(true)}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <button type="button" className="action-btn" onClick={() => setShowPdf(true)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.rose.base} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-              </svg>
-              Export PDF
+                <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>Export PDF
             </button>
-
-            {/* Export Excel */}
-            <button className="action-btn" onClick={handleExportXLSX} disabled={xlsxGen}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2"/>
-                <path d="M3 9h18M9 21V9"/>
-              </svg>
-              {xlsxGen ? 'Exporting�' : 'Export Excel'}
+            <button type="button" className="action-btn" onClick={handleExportXLSX} disabled={xlsxGen}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.emerald.base} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+              </svg>{xlsxGen ? 'Exporting…' : 'Export Excel'}
             </button>
-
-            {/* Refresh */}
-            <button className="action-btn" onClick={handleRefresh} style={{ color: '#64748B' }}>
-              <RefreshCw size={13} color="#64748B" />
-              Refresh
-            </button>
-
+            <button type="button" className="action-btn" onClick={handleRefresh}><RefreshCw size={13} color={T.textSub} /> Refresh</button>
           </div>
         </div>
 
-        {maint.active && isMainOrSuper && (
-          <div className="rounded-2xl border border-rose-100 bg-rose-50/60 px-5 py-4 flex flex-col gap-4">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600">
-                  <AlertTriangle size={16} />
-                </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-400">Maintenance Live</p>
-                  <p className="text-sm font-bold text-rose-700">System paused for Staff Admins & users</p>
-                </div>
-              </div>
-              <div className="px-3 py-2 rounded-xl bg-white border border-rose-100 text-rose-600 text-xs font-black">
-                {maintLeft != null ? `TIME LEFT ${Math.floor(maintLeft / 3600)}h ${Math.floor((maintLeft % 3600) / 60)}m` : 'TIME LEFT �'}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-center">
-              {/* Step 1: Choose action */}
-              <div className="flex flex-col gap-2 px-3 py-2 rounded-xl bg-white border border-rose-100">
-                <span className="text-[10px] font-black uppercase tracking-wider text-rose-400"> Action</span>
-                <div className="flex items-center gap-2">
-                  {['set','extend'].map(m => (
-                    <button
-                      key={m}
-                      onClick={() => setMaintMode(m)}
-                      disabled={m === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)}
-                      className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border transition ${
-                        maintMode === m
-                          ? 'bg-rose-600 text-white border-rose-600'
-                          : 'bg-white text-rose-600 border-rose-200'
-                      } ${m === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-rose-50'}`}
-                    >
-                      {m === 'set' ? 'Set Time' : 'Extend Time'}
-                    </button>
-                  ))}
-                </div>
-                <span className="text-[10px] text-rose-300 font-semibold">
-                  {(!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0) ? 'Extend disabled until timer starts.' : ' '}
-                </span>
-              </div>
-
-              {/* Step 2: Duration */}
-              <div className="flex flex-col gap-2 px-3 py-2 rounded-xl bg-white border border-rose-100">
-                <span className="text-[10px] font-black uppercase tracking-wider text-rose-400"> Duration</span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={maintDurVal}
-                    onChange={e => setMaintDurVal(Number(e.target.value))}
-                    className="w-16 px-2 py-1 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <select
-                    value={maintDurUnit}
-                    onChange={e => setMaintDurUnit(e.target.value)}
-                    className="px-2 py-1 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  >
-                    <option value="minutes">Minutes</option>
-                    <option value="hours">Hours</option>
-                  </select>
-                    <button
-                      onClick={handleApplyDuration}
-                      disabled={maintMode === 'extend' && (!Number.isFinite(maint.endsAt) || !maintLeft || maintLeft <= 0)}
-                      className="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 text-[10px] font-black hover:bg-rose-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                    Apply
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        )}
-
-        {/* -- KPI CARDS -- */}
+        {/* ── KPI CARDS — no bottom accent bar ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
-          {[
-            { title: 'Total Users',   value: kpis?.total_users ?? '�',    icon: <Users size={15}/>,           accent: '#6366F1', bg: '#EEF2FF', trend: null },
-            { title: 'Active Users',  value: `${kpis?.pct_active ?? 0}%`, icon: <Activity size={15}/>,        accent: '#22C55E', bg: '#F0FDF4', trend: 'up' },
-            { title: 'Avg. Income',   value: peso(kpis?.avg_income),       icon: <Wallet size={15}/>,          accent: '#3B82F6', bg: '#EFF6FF', trend: 'up' },
-            { title: 'Avg. Expenses', value: peso(kpis?.avg_expenses),     icon: <ArrowDownCircle size={15}/>, accent: '#EF4444', bg: '#FFF5F5', trend: 'down' },
-            { title: 'Avg. Savings',  value: peso(kpis?.avg_savings),      icon: <PieIcon size={15}/>,         accent: '#F59E0B', bg: '#FFFBEB', trend: 'up' },
-          ].map(({ title, value, icon, accent, bg, trend: tdir }) => (
-            <Card key={title} style={{ padding: '18px 20px', position: 'relative' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 11, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ color: accent }}>{icon}</span>
+          {kpiCards.map(({ title, value, icon, color, trend: tdir, target, tooltip }) => (
+            <div key={title} className="kpi-card" onClick={target} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && target()} role="button" tabIndex={0} title={tooltip} style={{ padding: '20px 20px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: color.bg, border: `1.5px solid ${color.light}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ color: color.base }}>{icon}</span>
                 </div>
                 {tdir && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 800, padding: '3px 7px', borderRadius: 99, background: tdir === 'up' ? '#F0FDF4' : '#FFF5F5', color: tdir === 'up' ? '#22C55E' : '#EF4444' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 99, background: tdir === 'up' ? T.emerald.bg : T.rose.bg, color: tdir === 'up' ? T.emerald.text : T.rose.text, border: `1px solid ${tdir === 'up' ? T.emerald.light : T.rose.light}` }}>
                     {tdir === 'up' ? <TrendingUp size={9}/> : <TrendingDown size={9}/>}
+                    {tdir === 'up' ? 'Up' : 'Down'}
                   </div>
                 )}
               </div>
-              {anomalies.hasAnomalies && title === 'Total Users' && (
-                <div style={{ position: 'absolute', top: 10, right: 10, padding: '3px 8px', borderRadius: 999, background: '#FFF5F5', border: '1px solid #FECACA', color: '#B91C1C', fontSize: 8.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <AlertTriangle size={9} />
-                  High-Risk
-                </div>
-              )}
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{title}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em' }}>{value}</div>
-              <div style={{ marginTop: 12, height: 3, borderRadius: 99, background: bg }}>
-                <div style={{ height: 3, borderRadius: 99, width: '60%', background: accent, opacity: 0.6 }} />
-              </div>
-            </Card>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 5 }}>{title}</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: color.text, letterSpacing: '-0.03em', lineHeight: 1.1 }}>{value}</div>
+              <span className="kpi-hint">{tooltip}</span>
+            </div>
           ))}
         </div>
 
-        {/* -- ROW 2: Trend + Savings -- */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
-          <Card style={{ padding: '20px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 30, height: 30, borderRadius: 9, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><TrendingUp size={14} color="#6366F1" /></div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Financial Trend</div>
-                  <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500 }}>Avg. income, expenses &amp; savings</div>
-                </div>
-                {trendLoading && <div style={{ width: 14, height: 14, border: '2px solid #E0E7FF', borderTopColor: '#6366F1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
-              </div>
-              <Dropdown options={TREND_FILTERS} value={trendFilter} onChange={setTrendFilter} dropRef={trendRef} />
-            </div>
-            {trend.length === 0 ? <EmptyState /> : (
-              <ResponsiveContainer width="100%" height={215}>
-                <AreaChart data={trend} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-                  <defs>
-                    {[['gInc','#22C55E'],['gExp','#EF4444'],['gSav','#6366F1']].map(([id,c]) => (
-                      <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={c} stopOpacity={0.15}/>
-                        <stop offset="95%" stopColor={c} stopOpacity={0}/>
-                      </linearGradient>
-                    ))}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 600 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `?${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
-                  <Tooltip formatter={(v, n) => [peso(v), n.replace('avg_', '').charAt(0).toUpperCase() + n.replace('avg_','').slice(1)]} contentStyle={{ borderRadius: 12, border: '1.5px solid #F1F5F9', fontSize: 11, boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontFamily: 'Sora, sans-serif' }} />
-                  <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 10, paddingTop: 10 }} />
-                  <Area type="monotone" dataKey="avg_income"   name="Income"   stroke="#22C55E" fill="url(#gInc)" strokeWidth={2.5} dot={false} />
-                  <Area type="monotone" dataKey="avg_expenses" name="Expenses" stroke="#EF4444" fill="url(#gExp)" strokeWidth={2.5} dot={false} />
-                  <Area type="monotone" dataKey="avg_savings"  name="Savings"  stroke="#6366F1" fill="url(#gSav)" strokeWidth={2.5} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </Card>
+        {/* ── ROW 2: Financial Trend + Savings Distribution ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, alignItems: 'stretch' }}>
 
-          <Card style={{ padding: '20px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 9, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><PieIcon size={14} color="#6366F1" /></div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Savings Distribution</div>
-                <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500 }}>By saver classification</div>
+          {/* Financial Trend */}
+          <div ref={trendSectionRef} style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className={`section-card ${highlightedSection === 'trend' ? 'section-glow-active' : ''}`} style={{ padding: '22px 24px', flex: 1, display: 'flex', flexDirection: 'column', ...sectionGlowStyle('trend') }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: T.emerald.bg, border: `1.5px solid ${T.emerald.light}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <TrendingUp size={15} color={T.emerald.base} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.textBase }}>Financial Trend</div>
+                    <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 500 }}>Avg. income, expenses &amp; savings</div>
+                  </div>
+                  {trendLoading && <div style={{ width: 14, height: 14, border: `2px solid ${T.indigo.light}`, borderTopColor: T.indigo.base, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
+                </div>
+                <Dropdown options={TREND_FILTERS} value={trendFilter} onChange={setTrendFilter} dropRef={trendRef} />
+              </div>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                {trend.length === 0 ? <EmptyState /> : (
+                  <ResponsiveContainer width="100%" height="100%" minHeight={260}>
+                    <AreaChart data={trend} margin={{ top: 5, right: 10, left: -5, bottom: 0 }}>
+                      <defs>
+                        {trendGradientStops.map(([id, c]) => (
+                          <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%"  stopColor={c} stopOpacity={0.15}/>
+                            <stop offset="95%" stopColor={c} stopOpacity={0}/>
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <CartesianGrid strokeDasharray="4 4" stroke={T.borderMid} strokeOpacity={0.5} horizontal={true} vertical={true} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10, fill: T.textMuted, fontWeight: 500, fontFamily: 'Inter, sans-serif' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 9, fill: T.textMuted, fontFamily: 'Inter, sans-serif' }} axisLine={false} tickLine={false} tickCount={6} tickFormatter={v => `₱${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 12, fontWeight: 600, fontFamily: 'Inter, sans-serif' }} formatter={(value) => <span style={{ color: T.textSub }}>{value}</span>} />
+                      <Area type="monotone" dataKey="avg_income"   name="Income"   stroke={T.income}   fill="url(#gInc)" strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: T.surface }} />
+                      <Area type="monotone" dataKey="avg_expenses" name="Expenses" stroke={T.expenses} fill="url(#gExp)" strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: T.surface }} />
+                      <Area
+                        type="monotone"
+                        dataKey="avg_savings"
+                        name="Savings"
+                        stroke={savingsTrend.line}
+                        fill={savingsTrend.area}
+                        strokeWidth={2.5}
+                        dot={{ r: 4, strokeWidth: 2, stroke: savingsTrend.point, fill: savingsTrend.point }}
+                        activeDot={{ r: 5, strokeWidth: 2, stroke: savingsTrend.line, fill: savingsTrend.point }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
-            {savingsDist.every(d => d.value === 0) ? <EmptyState /> : (
-              <>
-                <ResponsiveContainer width="100%" height={148}>
-                  <PieChart>
-                    <Pie data={savingsDist} cx="50%" cy="50%" innerRadius={40} outerRadius={62} paddingAngle={3} dataKey="value" strokeWidth={0}>
-                      {savingsDist.map((d, i) => <Cell key={i} fill={d.color} />)}
-                    </Pie>
-                    <Tooltip formatter={(v, _n, { payload }) => { const total = savingsDist.reduce((s, d) => s + d.value, 0); return [`${v} users (${total > 0 ? Math.round((v / total) * 100) : 0}%)`, payload.name]; }} contentStyle={{ borderRadius: 12, fontSize: 11, border: '1.5px solid #F1F5F9' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {savingsDist.map((d, i) => {
-                    const total = savingsDist.reduce((s, x) => s + x.value, 0);
-                    const share = pct(d.value, total);
-                    return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 99, background: d.color, flexShrink: 0 }} />
-                          <span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>{d.name}</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 60, height: 4, borderRadius: 99, background: '#F1F5F9', overflow: 'hidden' }}>
-                            <div style={{ width: share + '%', height: '100%', background: d.color, borderRadius: 99 }} />
-                          </div>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#0F172A', minWidth: 28, textAlign: 'right' }}>{d.value}</span>
-                          <span style={{ fontSize: 10, color: '#94A3B8', minWidth: 30 }}>({share}%)</span>
+          </div>
+
+          {/* Savings Distribution */}
+          <div ref={savingsSectionRef} style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className={`section-card ${highlightedSection === 'savings' ? 'section-glow-active' : ''}`} style={{ padding: '22px 24px', flex: 1, display: 'flex', flexDirection: 'column', ...sectionGlowStyle('savings') }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: T.amber.bg, border: `1.5px solid ${T.amber.light}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <PiggyBank size={15} color={T.amber.base} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.textBase }}>Savings Distribution</div>
+                  <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 500 }}>By saver classification</div>
+                </div>
+              </div>
+              {savingsDist.every(d => d.value === 0) ? <EmptyState /> : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ height: 220, minHeight: 220, position: 'relative' }}>
+                      <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                        <PieChart>
+                          <Pie
+                            data={[{ name: 'guide', value: 1 }]}
+                            dataKey="value"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius="48%"
+                            outerRadius="70%"
+                            fill="none"
+                            stroke={T.borderMid}
+                            strokeWidth={1}
+                            strokeDasharray="3 3"
+                            isAnimationActive={false}
+                          />
+                          <Pie data={savingsDist} cx="50%" cy="50%" innerRadius="48%" outerRadius="70%" paddingAngle={2} dataKey="value" stroke={T.surface} strokeWidth={3} startAngle={90} endAngle={-270}>
+                            {savingsDist.map((d, i) => <Cell key={i} fill={d.color} />)}
+                          </Pie>
+                          <Tooltip
+                            formatter={(v, _n, { payload }) => {
+                              const total = savingsDist.reduce((s, d) => s + d.value, 0);
+                              const cfg   = getSavingsConfig(payload.name);
+                              return [`${v} users (${total > 0 ? Math.round((v / total) * 100) : 0}%)`, cfg.label];
+                            }}
+                            contentStyle={{ borderRadius: 12, fontSize: 11, border: `1.5px solid ${T.borderMid}`, fontFamily: 'Inter, sans-serif', boxShadow: T.shadowMd }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: T.textBase, fontVariantNumeric: 'tabular-nums' }}>{savingsDist.reduce((s, d) => s + Number(d.value || 0), 0)}</div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Users</div>
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {savingsDist.map((d, i) => {
+                        const total = savingsDist.reduce((s, x) => s + x.value, 0);
+                        const share = total > 0 ? Math.round((d.value / total) * 100) : 0;
+                        const cfg   = getSavingsConfig(d.name);
+                        return (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', borderRadius: 10, background: cfg.bgLight, border: `1px solid ${cfg.border}`, gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                              <div style={{ width: 10, height: 10, borderRadius: '50%', background: d.color, flexShrink: 0, boxShadow: `0 0 0 2px ${d.color}28` }} />
+                              <span style={{ fontSize: 11, fontWeight: 600, color: T.textMid, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cfg.label}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                              <div style={{ width: 46, height: 4, borderRadius: 99, background: T.borderMid, overflow: 'hidden' }}>
+                                <div style={{ width: share + '%', height: '100%', background: d.color, borderRadius: 99 }} />
+                              </div>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: d.color, minWidth: 16, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.value}</span>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: T.textMuted, minWidth: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>({share}%)</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </>
-            )}
-          </Card>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* -- ROW 3: Categories + Bar + Risk -- */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-          <Card style={{ padding: '20px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 9, background: '#FFF5F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ArrowDownCircle size={14} color="#EF4444" /></div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Top Spending Categories</div>
-                <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500 }}>Share of total spend per category</div>
-              </div>
-            </div>
-            <div style={{ height: 1, background: '#F1F5F9', margin: '12px 0' }} />
-            {top6.length === 0 ? <EmptyState /> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {top6.map((c, i) => {
-                  const share  = pct(c.total_spent, top6Total);
-                  const status = classifySpending(share);
-                  const statusColor = { 'Over Limit': '#EF4444', 'Caution': '#F59E0B', 'Normal': '#22C55E' }[status];
-                  const statusBg    = { 'Over Limit': '#FFF5F5', 'Caution': '#FFFBEB', 'Normal': '#F0FDF4' }[status];
-                  return (
-                    <div key={i}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 99, background: c.color_hex, flexShrink: 0 }} />
-                          <span style={{ fontSize: 11, fontWeight: 600, color: '#334155' }}>{c.category}</span>
-                          {status !== 'Normal' && <span style={{ fontSize: 8.5, fontWeight: 800, padding: '2px 7px', borderRadius: 99, background: statusBg, color: statusColor, border: `1px solid ${statusColor}33` }}>{status}</span>}
-                        </div>
-                        <span style={{ fontSize: 11, fontWeight: 800, color: statusColor }}>{share}%</span>
-                      </div>
-                      <div style={{ height: 5, borderRadius: 99, background: '#F1F5F9', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', borderRadius: 99, width: share + '%', background: statusColor, transition: 'width 0.6s ease' }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
+        {/* ── ROW 3: Top Spending + Expense Bar + Risk Users ── */}
+        <div className="dashboard-grid">
 
-          <Card style={{ padding: '20px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 9, background: '#F0F9FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><TrendingDown size={14} color="#0EA5E9" /></div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Expense by Category</div>
-                <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500 }}>Total spend per category</div>
-              </div>
-            </div>
-            {top6.length === 0 ? <EmptyState /> : (
-              <ResponsiveContainer width="100%" height={230}>
-                <BarChart data={top6} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `?${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
-                  <YAxis type="category" dataKey="category" tick={{ fontSize: 9, fontWeight: 700, fill: '#64748B' }} axisLine={false} tickLine={false} width={88} />
-                  <Tooltip formatter={(v, _n, { payload }) => { const share = pct(v, top6Total); return [`${peso(v)}  �  ${share}% (${classifySpending(share)})`, 'Spent']; }} contentStyle={{ borderRadius: 12, border: '1.5px solid #F1F5F9', fontSize: 11, fontFamily: 'Sora, sans-serif' }} />
-                  <Bar dataKey="total_spent" radius={[0, 6, 6, 0]} barSize={12}>
-                    {top6.map((c, i) => <Cell key={i} fill={c.color_hex} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </Card>
-
-          <Card style={{ padding: '20px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 30, height: 30, borderRadius: 9, background: '#FFF5F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><AlertTriangle size={14} color="#EF4444" /></div>
+          {/* Top Spending Categories */}
+          <div className="dashboard-col">
+            <div className="section-card" style={{ padding: '22px 24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: T.rose.bg, border: `1.5px solid ${T.rose.light}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ArrowDownCircle size={15} color={T.rose.base} />
+                </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
-                    Risk Users
-                    <span style={{ marginLeft: 7, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 99, background: '#F1F5F9', color: '#64748B', verticalAlign: 'middle' }}>{filteredRisk.length}</span>
-                  </div>
-                  <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500 }}>Classified by expense ratio</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.textBase }}>Top Spending Categories</div>
+                  <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 500 }}>Share of total spend per category</div>
                 </div>
               </div>
-              <Dropdown options={RISK_FILTERS} value={riskFilter} onChange={setRiskFilter} dropRef={riskRef} />
-            </div>
-            <div style={{ display: 'flex', gap: 6, margin: '12px 0' }}>
-              {['High','Medium','Low'].map(l => (
-                <button key={l} onClick={() => setRiskFilter(riskFilter === l ? 'all' : l)} style={{ flex: 1, padding: '6px 4px', borderRadius: 10, cursor: 'pointer', border: '1.5px solid', borderColor: riskFilter === l ? riskColor(l) : riskBorder(l), background: riskFilter === l ? riskColor(l) : riskBg(l), color: riskFilter === l ? '#fff' : riskColor(l), fontSize: 10, fontWeight: 800, transition: 'all 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800 }}>{riskCount(l)}</span>
-                  <span style={{ opacity: 0.8 }}>{l}</span>
-                </button>
-              ))}
-            </div>
-            {filteredRisk.length === 0
-              ? <EmptyState msg={`No ${riskFilter === 'all' ? '' : riskFilter + ' '}risk users`} />
-              : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 210, overflowY: 'auto' }}>
-                  {filteredRisk.map(u => (
-                    <div key={u.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 12, background: riskBg(u.risk_level), border: `1.5px solid ${riskBorder(u.risk_level)}`, transition: 'transform 0.1s' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: riskColor(u.risk_level), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#fff' }}>
-                          {u.first_name?.[0] ?? '?'}
+              <div style={{ height: 1, background: T.border, margin: '14px 0' }} />
+              <div style={{ flex: 1, minHeight: 0 }}>
+                {top6.length === 0 ? <EmptyState /> : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 13, height: '100%', minHeight: 0 }}>
+                    {top6.map((c, i) => {
+                      const isNoData = Number(c.total_spent || 0) <= 0;
+                      const share  = pct(c.total_spent, top6Total);
+                      const status = classifySpending(share);
+                      const sColor = { 'Over Limit': T.rose.base, 'Caution': T.amber.base, 'Normal': T.emerald.base }[status];
+                      const sBg    = { 'Over Limit': T.rose.bg,   'Caution': T.amber.bg,   'Normal': T.emerald.bg   }[status];
+                      const sLight = { 'Over Limit': T.rose.light,'Caution': T.amber.light, 'Normal': T.emerald.light}[status];
+                      return (
+                        <div key={i}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: 99, background: c.color_hex, flexShrink: 0 }} />
+                              <span style={{ fontSize: 11, fontWeight: 600, color: T.textMid }}>{c.category}</span>
+                              {isNoData ? (
+                                <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: T.surfaceAlt, color: T.textMuted, border: `1px dashed ${T.borderMid}` }}>No data yet</span>
+                              ) : status !== 'Normal' && (
+                                <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: sBg, color: sColor, border: `1px solid ${sLight}` }}>{status}</span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: c.color_hex }}>{share}%</span>
+                          </div>
+                          <div style={{ height: 5, borderRadius: 99, background: T.border, overflow: 'hidden', border: isNoData ? `1px dashed ${T.borderMid}` : 'none' }}>
+                            <div style={{ height: '100%', borderRadius: 99, width: isNoData ? '0%' : `${share}%`, background: c.color_hex, transition: 'width 0.6s ease' }} />
+                          </div>
                         </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#1E293B', lineHeight: 1.3 }}>{fullName(u)}</div>
-                          <div style={{ fontSize: 9.5, color: '#94A3B8', lineHeight: 1.3 }}>{u.email}</div>
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: riskColor(u.risk_level), lineHeight: 1.2 }}>{Number(u.expense_ratio).toFixed(1)}%</div>
-                        <div style={{ fontSize: 8.5, fontWeight: 800, color: riskColor(u.risk_level), textTransform: 'uppercase', letterSpacing: '0.05em' }}>{u.risk_level}</div>
-                      </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Expense by Category — exact color match via CATEGORY_COLOR_MAP */}
+          <div ref={expenseSectionRef} className="dashboard-col">
+            <div className={`section-card ${highlightedSection === 'expenses' ? 'section-glow-active' : ''}`} style={{ padding: '22px 24px', flex: 1, display: 'flex', flexDirection: 'column', ...sectionGlowStyle('expenses') }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: T.rose.bg, border: `1.5px solid ${T.rose.light}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <TrendingDown size={15} color={T.rose.base} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.textBase }}>Expense by Category</div>
+                  <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 500 }}>Total spend per category</div>
+                </div>
+              </div>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                {top6.length === 0 ? <EmptyState /> : (
+                  <ResponsiveContainer width="100%" height="100%" minHeight={230} style={{ width: '100%', height: '100%' }}>
+                    <BarChart data={top6} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="4 4" stroke={T.borderMid} strokeOpacity={0.4} horizontal={true} vertical={true} />
+                      <XAxis type="number" tick={{ fontSize: 9, fill: T.textMuted, fontFamily: 'Inter, sans-serif' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} tickCount={5} />
+                      <YAxis type="category" dataKey="category" tick={{ fontSize: 9, fontWeight: 600, fill: T.textSub, fontFamily: 'Inter, sans-serif' }} axisLine={false} tickLine={false} width={100} />
+                      <Tooltip
+                        formatter={(v, _n, { payload }) => [`${peso(v)}  ·  ${pct(v, top6Total)}%`, 'Spent']}
+                        contentStyle={{ borderRadius: 12, border: `1.5px solid ${T.borderMid}`, fontSize: 11, fontFamily: 'Inter, sans-serif', boxShadow: T.shadowMd }}
+                      />
+                      {/* Bars use same color_hex from CATEGORY_COLOR_MAP — guaranteed match with list */}
+                      <Bar dataKey="total_spent" radius={[0, 7, 7, 0]} barSize={12}>
+                        {top6.map((c, i) => <Cell key={i} fill={c.color_hex} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Risk Users */}
+          <div ref={riskSectionRef} className="dashboard-col">
+            <div className={`section-card ${highlightedSection === 'riskUsers' ? 'section-glow-active' : ''}`} style={{ padding: '22px 24px', flex: 1, display: 'flex', flexDirection: 'column', ...sectionGlowStyle('riskUsers') }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: T.rose.bg, border: `1.5px solid ${T.rose.light}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Users size={15} color={T.rose.base} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.textBase }}>
+                      Risk Users
+                      <span style={{ marginLeft: 8, fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: T.surfaceAlt, color: T.textSub, border: `1px solid ${T.borderMid}`, verticalAlign: 'middle' }}>{filteredRisk.length}</span>
                     </div>
+                    <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 500 }}>Classified by expense ratio</div>
+                  </div>
+                </div>
+                <Dropdown options={RISK_FILTERS} value={riskFilter} onChange={setRiskFilter} dropRef={riskRef} />
+              </div>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                {/* Risk badges — Rose/Amber/Emerald */}
+                <div style={{ display: 'flex', gap: 6, margin: '12px 0' }}>
+                  {[
+                    { level: 'High',   color: T.riskHigh },
+                    { level: 'Medium', color: T.riskMed  },
+                    { level: 'Low',    color: T.riskLow  },
+                  ].map(({ level, color }) => (
+                    <button key={level} onClick={() => setRiskFilter(riskFilter === level ? 'all' : level)} style={{ flex: 1, padding: '7px 4px', borderRadius: 10, cursor: 'pointer', border: `1.5px solid ${riskFilter === level ? color.base : color.border}`, background: riskFilter === level ? color.base : color.bg, color: riskFilter === level ? '#fff' : color.base, fontSize: 10, fontWeight: 700, transition: 'all 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, fontFamily: 'inherit' }}>
+                      <span style={{ fontSize: 15, fontWeight: 800 }}>{riskCount(level)}</span>
+                      <span style={{ opacity: 0.85 }}>{level}</span>
+                    </button>
                   ))}
                 </div>
-              )
-            }
-          </Card>
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  {filteredRisk.length === 0
+                    ? <EmptyState msg={`No ${riskFilter === 'all' ? '' : riskFilter + ' '}risk users`} />
+                    : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                        {filteredRisk.map(u => {
+                          const lvlColor  = riskColor(u.risk_level);
+                          const lvlBg     = riskBg(u.risk_level);
+                          const lvlBorder = riskBorder(u.risk_level);
+                          return (
+                            <div key={`${u.user_id}-${riskVisibilityPulse ? 'g' : 'i'}`} className={u.risk_level === 'High' && riskVisibilityPulse ? 'risk-row-glow' : ''} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 12, background: lvlBg, border: `1.5px solid ${lvlBorder}` }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                {/* Circular avatar — color synced to risk level */}
+                                <img
+                                  src={riskAvatarSrc(u)}
+                                  alt={fullName(u)}
+                                  style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', boxShadow: `0 0 0 2px ${lvlColor}28` }}
+                                  onError={(e) => {
+                                    e.currentTarget.onerror = null;
+                                    e.currentTarget.src = avatarFallback(fullName(u));
+                                  }}
+                                />
+                                <div>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textMid, lineHeight: 1.3 }}>{fullName(u)}</div>
+                                  <div style={{ fontSize: 9.5, color: T.textMuted, lineHeight: 1.3 }}>{u.email}</div>
+                                </div>
+                              </div>
+                              {/* Right-justified percentage + risk badge */}
+                              <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 800, color: lvlColor, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>
+                                    {Number(u.expense_ratio).toFixed(1)}%
+                                  </div>
+                                  <div className="ratio-info" style={{ position: 'relative' }}>
+                                    <Info size={12} color={T.textMuted} />
+                                    <div style={{ position: 'absolute', right: 0, top: '120%', width: 250, background: T.surface, border: `1px solid ${T.borderMid}`, borderRadius: 10, boxShadow: T.shadowMd, padding: '8px 9px', zIndex: 30, opacity: 0, visibility: 'hidden', pointerEvents: 'none', transition: 'all 0.15s' }} className="risk-ratio-tip">
+                                      <div style={{ fontSize: 9.5, color: T.textSub, lineHeight: 1.35 }}>
+                                        Expense Ratio = Total Expenses ÷ Total Income × 100.
+                                      </div>
+                                      <div style={{ fontSize: 9.5, color: T.textSub, lineHeight: 1.35, marginTop: 4 }}>
+                                        A ratio above 100% means the user is spending more than they earn.
+                                      </div>
+                                      <div style={{ height: 1, background: T.border, margin: '7px 0' }} />
+                                      <div style={{ fontSize: 9.5, color: T.textMid, lineHeight: 1.45 }}>
+                                        <div>Total Income: {peso(u.total_income)}</div>
+                                        <div>Total Expenses: {peso(u.total_expenses)}</div>
+                                        <div>Ratio: {Number(u.expense_ratio).toFixed(1)}%</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div style={{ fontSize: 8, fontWeight: 800, color: lvlColor, textTransform: 'uppercase', letterSpacing: '0.08em', background: lvlBg, border: `1px solid ${lvlBorder}`, borderRadius: 99, padding: '1px 6px', display: 'inline-block', marginTop: 2 }}>
+                                  {u.risk_level}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
       </div>

@@ -1,5 +1,6 @@
 ﻿// pages/UserManagement.jsx — PESO AI
 import React, { useState, useEffect, useRef } from 'react';
+import { useOutletContext, useLocation } from 'react-router-dom';     // ← ADDED useLocation
 import {
   Search, MapPin, Mail, Clock, Calendar,
   CheckCircle, XCircle, Keyboard, FileText, FileSpreadsheet,
@@ -10,23 +11,35 @@ import { generateUsersPDF  } from '../pdf/usersPDF';
 import { generateUsersXLSX } from '../pdf/usersExport';
 import logo from '../assets/logo.png';
 import { apiFetch } from '../utils/authClient';
-import { getCurrentUser } from '../utils/clientSession';
 
 const UserManagement = () => {
+  const { maintKicks = [] } = useOutletContext() || {};
+  const location = useLocation();                                       // ← ADDED
+
   const [users,        setUsers]        = useState([]);
   const [searchTerm,   setSearchTerm]   = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [loading,      setLoading]      = useState(true);
   const [pdfBusy,      setPdfBusy]      = useState(false);
   const [xlsxBusy,     setXlsxBusy]    = useState(false);
+  const [currentUser,  setCurrentUser]  = useState(null);
   const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
-  const currentUser = getCurrentUser() || {};
-  const canManageUsers = currentUser.role === 'Main Admin' || currentUser.role === 'Super Admin';
+  const canManageUsers = currentUser?.role === 'Main Admin' || currentUser?.role === 'Super Admin';
 
   const searchInputRef = useRef(null);
 
+  // ── Apply filter passed from AdminDashboard KPI card navigation ──
+  // location.state = { filter: 'All' | 'Active' | 'Inactive' }
+  useEffect(() => {
+    const inboundFilter = location.state?.filter;
+    if (inboundFilter && ['All', 'Active', 'Inactive'].includes(inboundFilter)) {
+      setFilterStatus(inboundFilter);
+    }
+  }, [location.state]);
+
   useEffect(() => {
     fetchUsers();
+    fetchCurrentUser();
     searchInputRef.current?.focus();
     const handleKeyDown = e => {
       if (e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); searchInputRef.current?.focus(); }
@@ -40,6 +53,21 @@ const UserManagement = () => {
     };
   }, []);
 
+  const fetchCurrentUser = async () => {
+    try {
+      const res = await apiFetch('/api/auth/admins/me');
+      if (!res.ok) return;
+      const data = await res.json();
+      setCurrentUser({
+        id: data.userId || null,
+        name: data.displayName || 'Admin',
+        displayName: data.displayName || 'Admin',
+        role: data.role || null,
+      });
+    } catch {
+      setCurrentUser(null);
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -52,6 +80,8 @@ const UserManagement = () => {
 
   const fullName = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
   const statusOf = (u) => u.onboarding_completed ? 'Active' : 'Inactive';
+  const avatarFallback = (name) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=E2E8F0&color=334155`;
+  const userAvatarSrc = (u) => u.avatar_url || u.profile_picture || avatarFallback(fullName(u));
 
   const formatDate = d => {
     if (!d) return 'Never';
@@ -114,7 +144,6 @@ const UserManagement = () => {
   const handleExportPDF = async () => {
     setPdfBusy(true);
     try {
-      // PDF export: logo still passed as param (unchanged)
       await generateUsersPDF(filteredUsers, { search: searchTerm, status: filterStatus }, logo);
     } catch (e) {
       console.error('PDF error:', e);
@@ -125,7 +154,6 @@ const UserManagement = () => {
   const handleExportXLSX = async () => {
     setXlsxBusy(true);
     try {
-      // Excel export: logo is handled inside usersExport.js — logo param removed
       await generateUsersXLSX(filteredUsers, { search: searchTerm, status: filterStatus });
       showToast(`Excel exported — ${filteredUsers.length} users.`, 'success');
     } catch (e) {
@@ -141,16 +169,16 @@ const UserManagement = () => {
   // ── Avatar ─────────────────────────────────────────────────
   const Avatar = ({ user, size = 10 }) => {
     const sizeClass = `h-${size} w-${size}`;
-    if (user.profile_picture) {
-      return (
-        <img src={user.profile_picture} alt={user.first_name}
-          className={`${sizeClass} rounded-full object-cover border border-slate-200`} />
-      );
-    }
     return (
-      <div className={`${sizeClass} rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-sm border border-slate-200`}>
-        {user.first_name?.charAt(0)?.toUpperCase() ?? '?'}
-      </div>
+      <img
+        src={userAvatarSrc(user)}
+        alt={fullName(user)}
+        className={`${sizeClass} rounded-full object-cover border border-slate-200`}
+        onError={(e) => {
+          e.currentTarget.onerror = null;
+          e.currentTarget.src = avatarFallback(fullName(user));
+        }}
+      />
     );
   };
 
@@ -181,6 +209,12 @@ const UserManagement = () => {
                   View Only
                 </span>
               )}
+              {/* ── Show badge when arriving from dashboard with a pre-set filter ── */}
+              {location.state?.filter && location.state.filter !== 'All' && (
+                <span className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-md text-[10px] font-bold uppercase tracking-wider">
+                  Filtered: {location.state.filter} users
+                </span>
+              )}
             </div>
           </div>
 
@@ -198,8 +232,6 @@ const UserManagement = () => {
 
             {/* Export button group  PDF | Excel */}
             <div className="flex items-center rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden divide-x divide-slate-200">
-
-              {/* PDF button */}
               <button
                 onClick={handleExportPDF}
                 disabled={anyBusy}
@@ -209,8 +241,6 @@ const UserManagement = () => {
                 <FileText size={16} className="text-red-500" />
                 {pdfBusy ? 'Generating…' : 'Export PDF'}
               </button>
-
-              {/* Excel button */}
               <button
                 onClick={handleExportXLSX}
                 disabled={anyBusy}
@@ -220,16 +250,13 @@ const UserManagement = () => {
                 <FileSpreadsheet size={16} className="text-green-600" />
                 {xlsxBusy ? 'Exporting…' : 'Export Excel'}
               </button>
-
             </div>
           </div>
         </div>
 
         {/* ── STAFF ACTIVITY MONITOR ─────────────────────────── */}
-        {currentUser.role === 'Super Admin' && (
-          <>
-            <StaffActivityMonitor />
-          </>
+        {currentUser?.role === 'Super Admin' && (
+          <StaffActivityMonitor kicks={maintKicks} />
         )}
 
         {/* ── FILTER PILLS ───────────────────────────────────── */}

@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { initEmergencyResume } from './utils/EmergencyResume';
-import { apiFetch } from './utils/authClient';
-import { migrateSensitiveStorage, clearSensitiveSessionData, setCurrentUser, getCurrentUser } from './utils/clientSession';
+import { apiFetch, refreshCsrfToken } from './utils/authClient';
+import { migrateSensitiveStorage, clearSensitiveSessionData } from './utils/clientSession';
 
 import LandingPage from './pages/LandingPage';
 import AdminLayout from './layouts/AdminLayout';
@@ -22,15 +22,6 @@ const ProtectedRoute = ({ children }) => {
           clearSensitiveSessionData();
           setStatus('invalid');
           return;
-        }
-        const data = await response.json();
-        if (data?.userId) {
-          setCurrentUser({
-            id: data.userId,
-            displayName: data.displayName,
-            role: data.role,
-            name: data.displayName,
-          });
         }
         setStatus('valid');
       } catch {
@@ -59,6 +50,7 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   useEffect(() => {
     migrateSensitiveStorage();
+    refreshCsrfToken();
     const cleanup = initEmergencyResume();
     return () => cleanup && cleanup();
   }, []);
@@ -66,18 +58,31 @@ function App() {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (!(e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === 'u')) return;
-      const currentUser = getCurrentUser() || {};
-      if (!(currentUser.role === 'Super Admin' || currentUser.role === 'Main Admin')) return;
       e.preventDefault();
-      localStorage.setItem('pesoai_maint', 'false');
-      localStorage.removeItem('pesoai_maint_until');
-      localStorage.setItem('pesoai_maint_trigger', String(Date.now()));
-      window.dispatchEvent(new Event('pesoai_maint_change'));
-      apiFetch('/api/maintenance', {
-        method: 'POST',
-        body: JSON.stringify({ active: false }),
-      }).catch(() => {});
-      window.location.reload();
+      apiFetch('/api/auth/verify', { method: 'GET' })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          const role = data?.role;
+          if (!(role === 'Super Admin' || role === 'Main Admin')) return;
+
+          apiFetch('/api/maintenance', {
+            method: 'POST',
+            body: JSON.stringify({ active: false }),
+          }).catch(() => {});
+
+          if (typeof BroadcastChannel !== 'undefined') {
+            try {
+              const bc = new BroadcastChannel('pesoai_maint');
+              bc.postMessage({ active: false, endsAt: null });
+              bc.close();
+            } catch {
+              // ignore BroadcastChannel errors
+            }
+          }
+
+          window.location.reload();
+        })
+        .catch(() => {});
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

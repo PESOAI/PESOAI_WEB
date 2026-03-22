@@ -308,10 +308,10 @@ const ActionBadge = ({ action }) => {
       padding: '3px 8px', borderRadius: 99,
       fontSize: 9, fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase',
       background: bg, color: text, border: `1px solid ${border}`,
-      lineHeight: 1.4, maxWidth: '100%', overflow: 'hidden',
+      lineHeight: 1.4, maxWidth: '100%', overflow: 'visible', flexWrap: 'wrap',
     }}>
       <span style={{ flexShrink: 0 }}>{icon}</span>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action}</span>
+      <span style={{ overflow: 'visible', textOverflow: 'clip', whiteSpace: 'normal', wordBreak: 'break-word' }}>{action}</span>
     </span>
   );
 };
@@ -421,7 +421,7 @@ export const LogsPanel = ({ showToast }) => {
         onCancel={() => setConfirm({ open: false })}
       />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '65vh', overflowY: 'auto', paddingRight: 4, width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 10, fontWeight: 700, color: C.textMuted }}>{logs.length} records</span>
@@ -444,11 +444,11 @@ export const LogsPanel = ({ showToast }) => {
         ) : logs.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0', color: C.textMuted, fontSize: 12, fontStyle: 'italic' }}>No logs yet.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
             {logs.map((log, i) => {
               const s = typeStyle[log.type] || typeStyle.SUCCESS;
               return (
-                <div key={log.id ?? i} style={{ padding: '10px 12px', borderRadius: 12, background: s.bg, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div key={log.id ?? i} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 12, background: s.bg, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: s.text }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, display: 'inline-block' }} />
@@ -459,7 +459,7 @@ export const LogsPanel = ({ showToast }) => {
                     </span>
                   </div>
                   <p style={{ fontSize: 11, fontWeight: 800, color: C.textBase, margin: 0 }}>{log.user_name}</p>
-                  <p style={{ fontSize: 10, color: C.textSub, margin: 0, lineHeight: 1.4 }}>{log.message}</p>
+                  <p style={{ fontSize: 10, color: C.textSub, margin: 0, lineHeight: 1.4, whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{log.message}</p>
                 </div>
               );
             })}
@@ -562,7 +562,7 @@ export const AuditPanel = () => {
       </div>
 
       {/* ── Table ───────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', borderRadius: 12, border: `1px solid ${C.neutralBorder}`, background: C.surface }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', borderRadius: 12, border: `1px solid ${C.neutralBorder}`, background: C.surface, width: '100%' }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
             <RefreshCw size={22} style={{ color: C.neutralBorder, animation: 'spin 0.8s linear infinite' }} />
@@ -572,16 +572,16 @@ export const AuditPanel = () => {
             No entries match this filter.
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <table style={{ width: '100%', minWidth: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '44%' }} />
-              <col style={{ width: '26%' }} />
-              <col style={{ width: '30%' }} />
+              <col style={{ width: '50%', minWidth: 120 }} />
+              <col style={{ width: '25%', minWidth: 120 }} />
+              <col style={{ width: '25%', minWidth: 120 }} />
             </colgroup>
             <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
               <tr style={{ background: C.primary }}>
                 {[{ label: 'Action', align: 'left' }, { label: 'Admin', align: 'left' }, { label: 'Timestamp', align: 'right' }].map(({ label, align }) => (
-                  <th key={label} style={{ padding: '11px 14px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#FFFFFF', textAlign: align, borderBottom: `2px solid ${C.primaryHover}` }}>
+                  <th key={label} style={{ padding: '14px 20px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#FFFFFF', textAlign: align, borderBottom: `2px solid ${C.primaryHover}` }}>
                     {label}
                   </th>
                 ))}
@@ -606,12 +606,12 @@ export const AuditPanel = () => {
                   <tr key={entry.id ?? i} style={{ background: rowBg, transition: 'background 0.1s' }}
                     onMouseEnter={e => e.currentTarget.style.background = C.rowHover}
                     onMouseLeave={e => e.currentTarget.style.background = rowBg}>
-                    <td style={{ padding: '11px 14px', borderBottom: `1px solid ${C.neutralLine}`, overflow: 'hidden' }}><ActionBadge action={action} /></td>
-                    <td style={{ padding: '11px 14px', borderBottom: `1px solid ${C.neutralLine}`, overflow: 'hidden' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMid, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{admin}</div>
+                    <td style={{ padding: '14px 20px', borderBottom: `1px solid ${C.neutralLine}`, overflow: 'visible', minWidth: 120, verticalAlign: 'top' }}><ActionBadge action={action} /></td>
+                    <td style={{ padding: '14px 20px', borderBottom: `1px solid ${C.neutralLine}`, overflow: 'visible', minWidth: 120, verticalAlign: 'top' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMid, overflow: 'visible', textOverflow: 'clip', whiteSpace: 'normal', wordBreak: 'break-word' }}>{admin}</div>
                       <RoleChip role={role} />
                     </td>
-                    <td style={{ padding: '11px 14px', borderBottom: `1px solid ${C.neutralLine}`, textAlign: 'right' }}>
+                    <td style={{ padding: '14px 20px', borderBottom: `1px solid ${C.neutralLine}`, textAlign: 'right', minWidth: 120, verticalAlign: 'top' }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: C.textMid,   whiteSpace: 'nowrap' }}>{tsDate}</div>
                       <div style={{ fontSize:  9, fontWeight: 500, color: C.textMuted, whiteSpace: 'nowrap' }}>{tsTime}</div>
                     </td>

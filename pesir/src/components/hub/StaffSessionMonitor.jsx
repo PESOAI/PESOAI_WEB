@@ -1,26 +1,13 @@
 // components/hub/StaffSessionMonitor.jsx — PESO AI
 import React, { useEffect, useState } from 'react';
 
-export const StaffSessionMonitor = () => {
-  const [sessions, setSessions] = useState([]);
+export const StaffSessionMonitor = ({ sessions = [] }) => {
+  const [visibleSessions, setVisibleSessions] = useState([]);
 
   useEffect(() => {
-    const load = () => {
-      try {
-        const raw = JSON.parse(sessionStorage.getItem('pesoai_sessions')) || [];
-        const staff = raw.filter(s => (s.role || '') === 'Staff Admin');
-        setSessions(staff);
-      } catch { setSessions([]); }
-    };
-    load();
-    const onStorage = (e) => { if (e.key === 'pesoai_sessions') load(); };
-    window.addEventListener('storage', onStorage);
-    const poll = setInterval(load, 30_000);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      clearInterval(poll);
-    };
-  }, []);
+    const staff = (Array.isArray(sessions) ? sessions : []).filter((s) => (s.role || '') === 'Staff Admin');
+    setVisibleSessions(staff);
+  }, [sessions]);
 
   return (
     <div className="mb-6 bg-white border border-blue-100 rounded-2xl p-5 shadow-sm">
@@ -30,11 +17,11 @@ export const StaffSessionMonitor = () => {
           <h2 className="text-lg font-bold text-slate-800">Staff Session Monitor</h2>
         </div>
         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
-          {sessions.length} sessions
+          {visibleSessions.length} sessions
         </span>
       </div>
 
-      {sessions.length === 0 ? (
+      {visibleSessions.length === 0 ? (
         <p className="text-sm text-slate-500">No staff sessions detected.</p>
       ) : (
         <div className="overflow-x-auto">
@@ -47,7 +34,7 @@ export const StaffSessionMonitor = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sessions.slice(0, 8).map((s, i) => (
+              {visibleSessions.slice(0, 8).map((s, i) => (
                 <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-4 py-3 text-sm font-bold text-slate-800">{s.name || 'Staff Admin'}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">{s.platform || 'Unknown'}</td>

@@ -1,7 +1,7 @@
 // pesir/src/utils/clientSession.js
 // Session-safe client storage helpers and one-time localStorage sensitive-key migration.
 const MIGRATION_FLAG = 'pesoai_sensitive_migration_v1';
-const SENSITIVE_KEYS = ['token', 'currentUser', 'displayName', 'sessions', 'pesoai_sessions'];
+const SENSITIVE_KEYS = ['token', 'currentUser', 'displayName', 'sessions'];
 
 const getLegacyDisplayNameEntries = () => {
   const entries = [];
@@ -15,17 +15,15 @@ const getLegacyDisplayNameEntries = () => {
 };
 
 export const migrateSensitiveStorage = () => {
+  sessionStorage.removeItem('currentUser');
+  sessionStorage.removeItem('pesoai_sessions');
+  sessionStorage.removeItem('pesoai_maint_kicks');
+  localStorage.removeItem('pesoai_maint');
+  localStorage.removeItem('pesoai_maint_until');
+  localStorage.removeItem('pesoai_maint_trigger');
+  localStorage.removeItem('pesoai_maint_kicks');
+
   if (localStorage.getItem(MIGRATION_FLAG) === 'done') return;
-
-  const legacyCurrentUser = localStorage.getItem('currentUser');
-  if (legacyCurrentUser && !sessionStorage.getItem('currentUser')) {
-    sessionStorage.setItem('currentUser', legacyCurrentUser);
-  }
-
-  const legacySessions = localStorage.getItem('pesoai_sessions');
-  if (legacySessions && !sessionStorage.getItem('pesoai_sessions')) {
-    sessionStorage.setItem('pesoai_sessions', legacySessions);
-  }
 
   getLegacyDisplayNameEntries().forEach(([key, value]) => {
     if (value != null && !sessionStorage.getItem(key)) {
@@ -38,23 +36,12 @@ export const migrateSensitiveStorage = () => {
   localStorage.setItem(MIGRATION_FLAG, 'done');
 };
 
-export const getCurrentUser = () => {
-  try {
-    return JSON.parse(sessionStorage.getItem('currentUser')) || null;
-  } catch {
-    return null;
-  }
-};
+export const getCurrentUser = () => null;
 
-export const setCurrentUser = (user) => {
-  sessionStorage.setItem('currentUser', JSON.stringify(user || {}));
-};
+export const setCurrentUser = () => {};
 
 export const clearSensitiveSessionData = () => {
-  sessionStorage.removeItem('currentUser');
-  sessionStorage.removeItem('pesoai_sessions');
   Object.keys(sessionStorage).forEach((key) => {
     if (key.startsWith('displayName_')) sessionStorage.removeItem(key);
   });
 };
-

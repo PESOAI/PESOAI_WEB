@@ -7,7 +7,7 @@ export const HubModal = ({ title, onClose, children }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
     <div
-      className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 overflow-hidden"
+      className="relative bg-white w-full max-w-[820px] rounded-[2.5rem] shadow-2xl p-8 overflow-hidden"
       style={{ animation: 'hubIn .25s cubic-bezier(.22,1,.36,1) both' }}
     >
       <style>{`@keyframes hubIn{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}`}</style>
