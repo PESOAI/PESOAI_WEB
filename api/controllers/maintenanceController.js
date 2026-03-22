@@ -21,4 +21,3 @@ export const setMaintenance = (req, res) => {
   };
   res.json(maintenanceState);
 };
-

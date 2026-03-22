@@ -26,6 +26,25 @@ export const validateUpdateUser = [
   handleValidation,
 ];
 
+export const validateUpdateUserAvatar = [
+  param('id').isInt({ min: 1 }).withMessage('User id must be a positive integer').toInt(),
+  body('avatar_url')
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 2000 }).withMessage('avatar_url must be at most 2000 characters')
+    .custom((value) => {
+      if (!value) return true;
+      if (/^data:image\//i.test(value)) return true;
+      try {
+        const parsed = new URL(value);
+        return ['http:', 'https:'].includes(parsed.protocol);
+      } catch {
+        return false;
+      }
+    }).withMessage('avatar_url must be a valid http(s) URL or data URI'),
+  handleValidation,
+];
+
 export const validateRiskLevelQuery = [
   query('risk_level')
     .optional()

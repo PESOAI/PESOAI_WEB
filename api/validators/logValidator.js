@@ -20,4 +20,3 @@ export const validateCreateLog = [
     .escape(),
   handleValidation,
 ];
-

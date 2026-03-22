@@ -15,6 +15,7 @@ import {
   rotateRefreshToken,
 } from '../utils/tokenService.js';
 import { toSafeUser } from '../utils/responseSanitizer.js';
+import { sendError } from '../utils/apiResponse.js';
 
 export async function safeLog(type, userName, message) {
   try {
@@ -66,14 +67,14 @@ export const login = async (req, res) => {
 
     if (result.rows.length === 0) {
       await safeLog('FAILED', username, 'Failed login attempt: user not found');
-      return res.status(HTTP.UNAUTHORIZED).json({ message: 'Invalid credentials' });
+      return sendError(res, HTTP.UNAUTHORIZED, 'Invalid credentials');
     }
 
     const admin = result.rows[0];
     const isMatch = await bcrypt.compare(password, admin.password);
     if (!isMatch) {
       await safeLog('FAILED', username, 'Failed login attempt: wrong password');
-      return res.status(HTTP.UNAUTHORIZED).json({ message: 'Invalid credentials' });
+      return sendError(res, HTTP.UNAUTHORIZED, 'Invalid credentials');
     }
 
     const sessionAdmin = {

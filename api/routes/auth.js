@@ -1,6 +1,7 @@
 // api/routes/auth.js
 // Authentication, profile, admin management, and audit endpoints.
 import express from 'express';
+import { randomUUID } from 'crypto';
 import { verifyToken } from '../middleware/authMiddleware.js';
 import {
   login, logout, verify, refresh,
@@ -14,6 +15,18 @@ import {
 } from '../validators/authValidator.js';
 
 const router = express.Router();
+
+router.get('/csrf-token', (_req, res) => {
+  const token = randomUUID();
+  res.cookie('csrf_token', token, {
+    httpOnly: false,
+    secure: false,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 1000,
+  });
+  return res.json({ csrfToken: token });
+});
 
 router.post('/login',                 validateLogin,            login);
 router.post('/refresh',                                           refresh);

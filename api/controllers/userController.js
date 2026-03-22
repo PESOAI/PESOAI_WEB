@@ -12,6 +12,7 @@ export const getUsers = async (req, res) => {
       SELECT
         u.id, u.first_name, u.last_name, u.username, u.email,
         u.created_at, u.onboarding_completed, u.profile_picture,
+        NULLIF(TRIM(u.profile_picture), '') AS avatar_url,
         COALESCE(u.location, up.location, 'No Data') AS location,
         COALESCE(u.last_active_at, u.created_at)     AS last_active_at
       FROM users u
@@ -33,6 +34,7 @@ export const getUserById = async (req, res) => {
       SELECT
         u.id, u.first_name, u.last_name, u.username, u.email,
         u.created_at, u.onboarding_completed, u.profile_picture,
+        NULLIF(TRIM(u.profile_picture), '') AS avatar_url,
         COALESCE(u.location, up.location, 'No Data') AS location,
         COALESCE(u.last_active_at, u.created_at)     AS last_active_at,
         up.age, up.gender, up.occupation, up.monthly_income,
@@ -57,7 +59,7 @@ export const updateUser = async (req, res) => {
   const { id } = req.params;
   const { onboarding_completed, location } = req.body;
   const hasOnboarding = typeof onboarding_completed === 'boolean';
-  const hasLocation = typeof location === 'string';
+  const hasLocation   = typeof location === 'string';
   if (!hasOnboarding && !hasLocation) {
     return res.status(HTTP.BAD_REQUEST).json({ message: 'No valid fields provided to update' });
   }
@@ -148,22 +150,107 @@ export const getKpis = async (req, res) => {
 };
 
 // ── GET /api/admin/top-categories ────────────────────────────
+// FIX 1: Removed current-month filter so ALL transactions are counted.
+// FIX 2: Normalize category aliases IN SQL before grouping — Bills→Bills & Utilities,
+//         Food→Food & Dining, Transport→Transportation.
+//         This ensures merged totals are clean before the frontend renders.
 export const getTopCategories = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT t.category, SUM(t.amount) AS total_spent
-      FROM transactions t
-      WHERE t.transaction_type = 'expense'
-        AND EXTRACT(MONTH FROM t.transaction_date) = EXTRACT(MONTH FROM NOW())
-        AND EXTRACT(YEAR  FROM t.transaction_date) = EXTRACT(YEAR  FROM NOW())
-      GROUP BY t.category
-      ORDER BY total_spent DESC
-      LIMIT 6
+      WITH normalized_transactions AS (
+        SELECT
+          CASE
+            WHEN LOWER(TRIM(category)) IN ('bills', 'bills & utilities') THEN 'Bills & Utilities'
+            WHEN LOWER(TRIM(category)) IN ('transport', 'transportation') THEN 'Transportation'
+            WHEN LOWER(TRIM(category)) IN ('food', 'food & dining') THEN 'Food & Dining'
+            ELSE INITCAP(LOWER(TRIM(category)))
+          END AS category,
+          SUM(amount) AS total_spent
+        FROM transactions
+        WHERE transaction_type = 'expense'
+        GROUP BY
+          CASE
+            WHEN LOWER(TRIM(category)) IN ('bills', 'bills & utilities') THEN 'Bills & Utilities'
+            WHEN LOWER(TRIM(category)) IN ('transport', 'transportation') THEN 'Transportation'
+            WHEN LOWER(TRIM(category)) IN ('food', 'food & dining') THEN 'Food & Dining'
+            ELSE INITCAP(LOWER(TRIM(category)))
+          END
+      ),
+      normalized_expense_categories AS (
+        SELECT DISTINCT
+          CASE
+            WHEN LOWER(TRIM(name)) IN ('bills', 'bills & utilities') THEN 'Bills & Utilities'
+            WHEN LOWER(TRIM(name)) IN ('transport', 'transportation') THEN 'Transportation'
+            WHEN LOWER(TRIM(name)) IN ('food', 'food & dining') THEN 'Food & Dining'
+            ELSE INITCAP(LOWER(TRIM(name)))
+          END AS category
+        FROM categories
+        WHERE LOWER(TRIM(type)) = 'expense'
+      )
+      SELECT
+        c.category,
+        COALESCE(t.total_spent, 0) AS total_spent
+      FROM normalized_expense_categories c
+      LEFT JOIN normalized_transactions t ON t.category = c.category
+      UNION
+      SELECT
+        t.category,
+        t.total_spent
+      FROM normalized_transactions t
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM normalized_expense_categories c
+        WHERE c.category = t.category
+      )
+      ORDER BY total_spent DESC, category ASC
     `);
     res.json(result.rows || []);
   } catch (err) {
     console.error('[CATEGORIES ERROR]', err.message);
     res.status(HTTP.INTERNAL).json({ error: err.message });
+  }
+};
+
+// ── GET /api/users/:id/avatar ─────────────────────────────────
+export const getUserAvatar = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT id AS user_id, NULLIF(TRIM(profile_picture), '') AS avatar_url
+       FROM users
+       WHERE id = $1`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(HTTP.NOT_FOUND).json({ message: 'User not found' });
+    }
+    return res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[USER AVATAR FETCH ERROR]', err.message);
+    return res.status(HTTP.INTERNAL).json({ error: err.message });
+  }
+};
+
+// ── PUT /api/users/:id/avatar ─────────────────────────────────
+export const updateUserAvatar = async (req, res) => {
+  const { id } = req.params;
+  const { avatar_url } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET profile_picture = NULLIF($1::text, ''),
+           last_active_at = NOW()
+       WHERE id = $2
+       RETURNING id AS user_id, NULLIF(TRIM(profile_picture), '') AS avatar_url`,
+      [avatar_url ?? null, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(HTTP.NOT_FOUND).json({ message: 'User not found' });
+    }
+    return res.json({ success: true, ...result.rows[0] });
+  } catch (err) {
+    console.error('[USER AVATAR UPDATE ERROR]', err.message);
+    return res.status(HTTP.INTERNAL).json({ error: err.message });
   }
 };
 
@@ -174,6 +261,7 @@ export const getHighRisk = async (req, res) => {
     const result = await pool.query(`
       SELECT
         u.id AS user_id, u.first_name, u.last_name, u.email, u.profile_picture,
+        NULLIF(TRIM(u.profile_picture), '') AS avatar_url,
         COALESCE(u.location, up.location, 'No Data')     AS location,
         COALESCE(u.last_active_at, u.created_at)         AS last_active_at,
         COALESCE(ROUND(inc.total, 2), 0)                  AS total_income,
@@ -219,15 +307,21 @@ export const getHighRisk = async (req, res) => {
 };
 
 // ── GET /api/admin/monthly-trend ─────────────────────────────
+// FIX 3: Monthly trend now spans last 6 months dynamically instead of
+//         hardcoded '2026-01-01', making it future-proof.
 export const getMonthlyTrend = async (req, res) => {
   const { period = 'monthly' } = req.query;
 
   try {
     if (period === 'daily') {
       const result = await pool.query(`
-        SELECT day, ROUND(AVG(daily_income), 2) AS avg_income, ROUND(AVG(daily_expenses), 2) AS avg_expenses
+        SELECT day,
+          ROUND(AVG(daily_income),   2) AS avg_income,
+          ROUND(AVG(daily_expenses), 2) AS avg_expenses
         FROM (
-          SELECT transaction_date::DATE AS day, user_id,
+          SELECT
+            transaction_date::DATE AS day,
+            user_id,
             SUM(CASE WHEN transaction_type = 'income'  THEN amount ELSE 0 END) AS daily_income,
             SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) AS daily_expenses
           FROM transactions
@@ -251,13 +345,14 @@ export const getMonthlyTrend = async (req, res) => {
     if (period === 'weekly') {
       const result = await pool.query(`
         SELECT yr, wk, MIN(week_start) AS week_start,
-          ROUND(AVG(weekly_income), 2) AS avg_income,
+          ROUND(AVG(weekly_income),   2) AS avg_income,
           ROUND(AVG(weekly_expenses), 2) AS avg_expenses
         FROM (
           SELECT
-            EXTRACT(YEAR FROM transaction_date)::INT AS yr,
-            EXTRACT(WEEK FROM transaction_date)::INT AS wk,
-            DATE_TRUNC('week', transaction_date)::DATE AS week_start, user_id,
+            EXTRACT(YEAR FROM transaction_date)::INT  AS yr,
+            EXTRACT(WEEK FROM transaction_date)::INT  AS wk,
+            DATE_TRUNC('week', transaction_date)::DATE AS week_start,
+            user_id,
             SUM(CASE WHEN transaction_type = 'income'  THEN amount ELSE 0 END) AS weekly_income,
             SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) AS weekly_expenses
           FROM transactions
@@ -269,8 +364,12 @@ export const getMonthlyTrend = async (req, res) => {
       `);
       return res.json(result.rows.map(r => {
         const d = new Date(r.week_start);
+        const weekEnd = new Date(d);
+        weekEnd.setDate(weekEnd.getDate() + 6);
         return {
           label:        MONTHS[d.getMonth()] + ' ' + d.getDate(),
+          week_start:   r.week_start,
+          week_end:     weekEnd.toISOString().split('T')[0],
           avg_income:   parseFloat(r.avg_income   || 0),
           avg_expenses: parseFloat(r.avg_expenses || 0),
           avg_savings:  parseFloat((r.avg_income  || 0) - (r.avg_expenses || 0)),
@@ -278,8 +377,11 @@ export const getMonthlyTrend = async (req, res) => {
       }));
     }
 
+    // FIX 3: Dynamic last 6 months instead of hardcoded date
     const result = await pool.query(`
-      SELECT yr, mo, ROUND(AVG(monthly_income), 2) AS avg_income, ROUND(AVG(monthly_expenses), 2) AS avg_expenses
+      SELECT yr, mo,
+        ROUND(AVG(monthly_income),   2) AS avg_income,
+        ROUND(AVG(monthly_expenses), 2) AS avg_expenses
       FROM (
         SELECT
           EXTRACT(YEAR  FROM transaction_date)::INT AS yr,
@@ -288,11 +390,13 @@ export const getMonthlyTrend = async (req, res) => {
           SUM(CASE WHEN transaction_type = 'income'  THEN amount ELSE 0 END) AS monthly_income,
           SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) AS monthly_expenses
         FROM transactions
-        WHERE transaction_date >= '2026-01-01' AND transaction_date <= CURRENT_DATE
+        WHERE transaction_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'
+          AND transaction_date <= CURRENT_DATE
         GROUP BY yr, mo, user_id
       ) per_user_month
       GROUP BY yr, mo ORDER BY yr, mo
     `);
+
     return res.json(result.rows.map(r => ({
       label:        MONTHS[r.mo - 1] + ' ' + r.yr,
       avg_income:   parseFloat(r.avg_income   || 0),
@@ -326,12 +430,12 @@ export const getSavingsDistribution = async (req, res) => {
           / NULLIF(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) AS ratio
         FROM transactions
         WHERE (
-          ($1::text = 'daily' AND transaction_date >= NOW() - INTERVAL '13 days')
-          OR ($1::text = 'weekly' AND transaction_date >= NOW() - INTERVAL '7 weeks')
+          ($1::text = 'daily'   AND transaction_date >= NOW() - INTERVAL '13 days')
+          OR ($1::text = 'weekly'  AND transaction_date >= NOW() - INTERVAL '7 weeks')
           OR (
             $1::text = 'monthly'
             AND EXTRACT(MONTH FROM transaction_date) = EXTRACT(MONTH FROM NOW())
-            AND EXTRACT(YEAR FROM transaction_date) = EXTRACT(YEAR FROM NOW())
+            AND EXTRACT(YEAR  FROM transaction_date) = EXTRACT(YEAR  FROM NOW())
           )
         )
         GROUP BY user_id
@@ -340,10 +444,10 @@ export const getSavingsDistribution = async (req, res) => {
 
     const r = result.rows[0];
     res.json([
-      { name: 'Deficit',     value: parseInt(r.deficit  || 0), color: SAVINGS_DISTRIBUTION_COLORS.DEFICIT },
-      { name: 'Low (<20%)',  value: parseInt(r.low      || 0), color: SAVINGS_DISTRIBUTION_COLORS.LOW },
+      { name: 'Deficit',     value: parseInt(r.deficit  || 0), color: SAVINGS_DISTRIBUTION_COLORS.DEFICIT  },
+      { name: 'Low (<20%)',  value: parseInt(r.low      || 0), color: SAVINGS_DISTRIBUTION_COLORS.LOW      },
       { name: 'Moderate',    value: parseInt(r.moderate || 0), color: SAVINGS_DISTRIBUTION_COLORS.MODERATE },
-      { name: 'High (>50%)', value: parseInt(r.high     || 0), color: SAVINGS_DISTRIBUTION_COLORS.HIGH },
+      { name: 'High (>50%)', value: parseInt(r.high     || 0), color: SAVINGS_DISTRIBUTION_COLORS.HIGH     },
     ]);
   } catch (err) {
     console.error('[SAVINGS DIST ERROR]', err.message);

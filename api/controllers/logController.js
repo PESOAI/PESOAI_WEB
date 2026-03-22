@@ -3,7 +3,6 @@
 import pool from '../config/db.js';
 import { HTTP, ROLES, LOG_LIMIT } from '../constants/index.js';
 
-// ── POST /api/logs ────────────────────────────────────────────
 export const createLog = async (req, res) => {
   const { type, user_name, message } = req.body;
   try {
@@ -18,7 +17,6 @@ export const createLog = async (req, res) => {
   }
 };
 
-// ── GET /api/logs ─────────────────────────────────────────────
 export const getLogs = async (req, res) => {
   try {
     const result = await pool.query(
@@ -32,7 +30,6 @@ export const getLogs = async (req, res) => {
   }
 };
 
-// ── DELETE /api/logs ──────────────────────────────────────────
 export const deleteLogs = async (req, res) => {
   if (req.admin?.role !== ROLES.MAIN_ADMIN)
     return res.status(HTTP.FORBIDDEN).json({ message: 'Only Main Admin can clear logs' });
