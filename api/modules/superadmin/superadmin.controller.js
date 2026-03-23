@@ -17,7 +17,7 @@ const listUsersDetailed = async (req, res) => {
 
     const dataQ  = search
       ? `SELECT u.id, u.first_name, u.last_name, u.username, u.email, u.role,
-                u.is_disabled, u.disabled_reason, u.disabled_at,
+                u.is_active, u.token_version, u.is_disabled, u.disabled_reason, u.disabled_at,
                 u.onboarding_completed, u.created_at,
                 p.age, p.gender, p.occupation, p.monthly_income, p.budget_period,
                 COUNT(t.id)::int AS total_transactions,
@@ -29,7 +29,7 @@ const listUsersDetailed = async (req, res) => {
          GROUP BY u.id, p.age, p.gender, p.occupation, p.monthly_income, p.budget_period
          ORDER BY u.created_at DESC LIMIT $2 OFFSET $3`
       : `SELECT u.id, u.first_name, u.last_name, u.username, u.email, u.role,
-                u.is_disabled, u.disabled_reason, u.disabled_at,
+                u.is_active, u.token_version, u.is_disabled, u.disabled_reason, u.disabled_at,
                 u.onboarding_completed, u.created_at,
                 p.age, p.gender, p.occupation, p.monthly_income, p.budget_period,
                 COUNT(t.id)::int AS total_transactions,
@@ -62,20 +62,62 @@ const getUserTransactions = async (req, res) => {
 
     const [countR, dataR] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM transactions WHERE user_id=$1', [userId]),
-      pool.query(`SELECT * FROM transactions WHERE user_id=$1 ORDER BY transaction_date DESC LIMIT $2 OFFSET $3`,
+      pool.query(`SELECT * FROM transactions
+                  WHERE user_id=$1
+                  ORDER BY transaction_date DESC, created_at DESC, id DESC
+                  LIMIT $2 OFFSET $3`,
         [userId, limit, offset]),
     ]);
+    const total = parseInt(countR.rows[0].count);
     return res.json({
       success: true,
       data: {
         transactions: dataR.rows,
-        total: parseInt(countR.rows[0].count),
+        total,
         page, limit,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (err) {
     console.error('[SuperAdmin] getUserTransactions:', err.message);
     return res.status(500).json({ success: false, message: MESSAGES.TRANSACTION_FETCH_FAILED });
+  }
+};
+
+// â”€â”€ GET /api/superadmin/users/:userId/sessions  (LOGGED) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const getUserSessions = async (req, res) => {
+  const { userId } = req.params;
+  const { page, limit, offset } = parsePagination(req.query, 20, 100);
+  try {
+    const check = await pool.query('SELECT id FROM users WHERE id=$1 AND role=$2', [userId, 'user']);
+    if (!check.rowCount) return res.status(404).json({ success: false, message: MESSAGES.ADMIN_USER_NOT_FOUND });
+
+    const [countR, dataR] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM session_logs WHERE user_id=$1', [userId]),
+      pool.query(
+        `SELECT id, user_id, login_time, logout_time, ip_address, user_agent
+         FROM session_logs
+         WHERE user_id=$1
+         ORDER BY login_time DESC, id DESC
+         LIMIT $2 OFFSET $3`,
+        [userId, limit, offset]
+      ),
+    ]);
+
+    const total = parseInt(countR.rows[0].count);
+    return res.json({
+      success: true,
+      data: {
+        sessions: dataR.rows,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error('[SuperAdmin] getUserSessions:', err.message);
+    return res.status(500).json({ success: false, message: MESSAGES.SERVER_ERROR });
   }
 };
 
@@ -88,7 +130,13 @@ const disableUser = async (req, res) => {
     if (!check.rowCount) return res.status(404).json({ success: false, message: MESSAGES.ADMIN_USER_NOT_FOUND });
     if (check.rows[0].is_disabled) return res.status(409).json({ success: false, message: MESSAGES.ADMIN_USER_ALREADY_DISABLED });
     await pool.query(
-      `UPDATE users SET is_disabled=TRUE, disabled_reason=$1, disabled_at=CURRENT_TIMESTAMP WHERE id=$2`,
+      `UPDATE users
+       SET is_active=FALSE,
+           is_disabled=TRUE,
+           disabled_reason=$1,
+           disabled_at=CURRENT_TIMESTAMP,
+           token_version=COALESCE(token_version, 0) + 1
+       WHERE id=$2`,
       [reason||null, userId]
     );
     return res.json({ success: true, message: MESSAGES.ADMIN_USER_DISABLED });
@@ -106,7 +154,13 @@ const enableUser = async (req, res) => {
     if (!check.rowCount) return res.status(404).json({ success: false, message: MESSAGES.ADMIN_USER_NOT_FOUND });
     if (!check.rows[0].is_disabled) return res.status(409).json({ success: false, message: MESSAGES.ADMIN_USER_ALREADY_ENABLED });
     await pool.query(
-      `UPDATE users SET is_disabled=FALSE, disabled_reason=NULL, disabled_at=NULL WHERE id=$1`,
+      `UPDATE users
+       SET is_active=TRUE,
+           is_disabled=FALSE,
+           disabled_reason=NULL,
+           disabled_at=NULL,
+           token_version=COALESCE(token_version, 0) + 1
+       WHERE id=$1`,
       [userId]
     );
     return res.json({ success: true, message: MESSAGES.ADMIN_USER_ENABLED });
@@ -239,7 +293,7 @@ const getAccessLogs = async (req, res) => {
 // ── PUT    /api/superadmin/announcements/:id  (superadmin can also update/toggle) ─
 import { deleteAnnouncement, updateAnnouncement } from '../announcements/announcements.controller.js';
 
-export { listUsersDetailed, getUserTransactions,
+export { listUsersDetailed, getUserTransactions, getUserSessions,
   disableUser, enableUser,
   getMaintenanceStatus, setMaintenanceStatus,
   listAdmins, createAdmin, deleteAdmin,

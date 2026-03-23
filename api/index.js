@@ -90,6 +90,16 @@ async function initSchema() {
     )`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_access_logs_actor ON public.access_logs (actor_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_access_logs_time  ON public.access_logs (accessed_at DESC)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS public.session_logs (
+      id         SERIAL PRIMARY KEY,
+      user_id    UUID REFERENCES public.users(id) ON DELETE SET NULL,
+      login_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      logout_time TIMESTAMPTZ,
+      ip_address TEXT,
+      user_agent TEXT
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_session_logs_user_time
+      ON public.session_logs (user_id, login_time DESC)`);
 
     // Column additions to existing tables
     await pool.query(`ALTER TABLE public.admins ADD COLUMN IF NOT EXISTS avatar        TEXT`);
@@ -100,6 +110,8 @@ async function initSchema() {
     await pool.query(`ALTER TABLE public.users  ADD COLUMN IF NOT EXISTS disabled_reason TEXT`);
     await pool.query(`ALTER TABLE public.users  ADD COLUMN IF NOT EXISTS disabled_at    TIMESTAMPTZ`);
     await pool.query(`ALTER TABLE public.users  ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE public.users  ADD COLUMN IF NOT EXISTS is_active      BOOLEAN NOT NULL DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE public.users  ADD COLUMN IF NOT EXISTS token_version  INTEGER NOT NULL DEFAULT 0`);
 
     console.log('✅ Schema initialised');
   } catch (err) {

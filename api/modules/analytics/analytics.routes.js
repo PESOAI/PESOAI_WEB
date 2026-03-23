@@ -3,21 +3,22 @@ const router   = express.Router();
 import { verifyToken, authorizeOwner } from '../../middleware/mobileAuthMiddleware.js';
 import { authorizeRoles } from '../../middleware/role.middleware.js';
 import { maintenanceGuard } from '../../middleware/maintenance.middleware.js';
+import { accountGuard } from '../../middleware/accountGuard.middleware.js';
 import { getAnalytics, getSpendingTrendData, getTrendData,
   getPlatformSummary, getDetailedAnalytics, } from './analytics.controller.js';
 
 // ── User own analytics — preserve original exact paths /api/analytics/* ───────
 // trend-chart and trend must come before /:userId to avoid Express shadowing
 router.get('/analytics/trend-chart/:userId',
-  verifyToken, authorizeRoles('user'), maintenanceGuard, authorizeOwner,
+  verifyToken, authorizeRoles('user'), maintenanceGuard, accountGuard, authorizeOwner,
   getTrendData);
 
 router.get('/analytics/trend/:userId',
-  verifyToken, authorizeRoles('user'), maintenanceGuard, authorizeOwner,
+  verifyToken, authorizeRoles('user'), maintenanceGuard, accountGuard, authorizeOwner,
   getSpendingTrendData);
 
 router.get('/analytics/:userId',
-  verifyToken, authorizeRoles('user'), maintenanceGuard, authorizeOwner,
+  verifyToken, authorizeRoles('user'), maintenanceGuard, accountGuard, authorizeOwner,
   getAnalytics);
 
 // ── Platform-wide analytics — new endpoints, admin + superadmin only ──────────

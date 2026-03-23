@@ -1,12 +1,14 @@
 import express from 'express';
 const router   = express.Router();
-import { verifyToken, authorizeOwner } from '../../middleware/mobileAuthMiddleware.js';
+import { verifyToken } from '../../middleware/mobileAuthMiddleware.js';
+import { authorizeRoles } from '../../middleware/role.middleware.js';
 import { signup, login, completeOnboarding,
-  forgotPassword, resetPassword, } from './auth.controller.js';
+  logout, forgotPassword, resetPassword, } from './auth.controller.js';
 
 // ── Public (no token required) ────────────────────────────────────────────────
 router.post('/signup',          signup);
 router.post('/login',           login);
+router.post('/logout',          verifyToken, authorizeRoles('user'), logout);
 router.post('/onboarding',      completeOnboarding);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password',  resetPassword);

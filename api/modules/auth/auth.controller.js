@@ -21,8 +21,13 @@ import { isNonEmptyString,
  * Regular login  → 1 day  token
  * Remember Me    → 7 day  token
  */
-const buildToken = (userId, role, rememberMe = false) =>
-  jwt.sign({ id: userId, role }, process.env.JWT_SECRET, {
+const buildToken = (user, rememberMe = false) =>
+  jwt.sign({
+    id:           user.id,
+    userId:       user.id,
+    role:         user.role || 'user',
+    tokenVersion: Number(user.token_version || 0),
+  }, process.env.JWT_SECRET, {
     expiresIn: rememberMe ? '7d' : (process.env.JWT_EXPIRY || '1d'),
   });
 
@@ -38,6 +43,38 @@ const buildUserPayload = (user) => ({
 // Generates a cryptographically random 6-digit OTP
 const generateOtp = () =>
   String(crypto.randomInt(100000, 999999));
+
+const getRequestIp = (req) => {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim().length > 0) {
+    return forwardedFor.split(',')[0].trim();
+  }
+  return req.ip || req.socket?.remoteAddress || null;
+};
+
+const createSessionLog = async (req, userId) => {
+  await pool.query(
+    `INSERT INTO session_logs (user_id, ip_address, user_agent)
+     VALUES ($1, $2, $3)`,
+    [userId, getRequestIp(req), req.get('user-agent') || null]
+  );
+};
+
+const closeLatestSessionLog = async (userId) => {
+  await pool.query(
+    `UPDATE session_logs
+     SET logout_time = CURRENT_TIMESTAMP
+     WHERE id = (
+       SELECT id
+       FROM session_logs
+       WHERE user_id = $1
+         AND logout_time IS NULL
+       ORDER BY login_time DESC
+       LIMIT 1
+     )`,
+    [userId]
+  );
+};
 
 // ─── POST /api/signup ─────────────────────────────────────────────────────────
 
@@ -68,7 +105,7 @@ const signup = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 12);
     const user  = await createUser(cleanFirstName, cleanLastName, cleanUsername, cleanEmail, hashedPassword);
-    const token = buildToken(user.id, user.role || 'user');
+    const token = buildToken(user);
 
     return res.status(201).json({ success: true, user: buildUserPayload(user), token });
 
@@ -100,20 +137,43 @@ const login = async (req, res) => {
     if (!isMatch) return res.status(401).json({ success: false, message: MESSAGES.AUTH_INVALID_CREDENTIALS });
 
     // Disabled account check
-    if (user.is_disabled) {
+    if (user.is_disabled || user.is_active === false) {
       return res.status(403).json({
-        success: false, message: MESSAGES.AUTH_ACCOUNT_DISABLED,
-        accountDisabled: true, reason: user.disabled_reason || null,
+        success: false,
+        message: MESSAGES.AUTH_ACCOUNT_DISABLED,
+        code: 'ACCOUNT_DISABLED',
+        accountDisabled: true,
+        reason: user.disabled_reason || null,
+        email: user.email || null,
       });
     }
 
-    const token = buildToken(user.id, user.role || 'user', rememberMe === true);
+    const token = buildToken(user, rememberMe === true);
+    createSessionLog(req, user.id)
+      .catch((logErr) => console.error('[Auth] session log insert failed:', logErr.message));
 
     return res.json({ success: true, user: buildUserPayload(user), token });
 
   } catch (err) {
     console.error('[Auth] login error:', err.message);
     return res.status(500).json({ success: false, message: MESSAGES.AUTH_LOGIN_FAILED });
+  }
+};
+
+// â”€â”€â”€ POST /api/logout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const logout = async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: MESSAGES.UNAUTHORIZED });
+    }
+
+    await closeLatestSessionLog(userId);
+    return res.json({ success: true, message: 'Logged out successfully.' });
+  } catch (err) {
+    console.error('[Auth] logout error:', err.message);
+    return res.status(500).json({ success: false, message: 'Logout failed.' });
   }
 };
 
@@ -278,5 +338,5 @@ const completeOnboarding = async (req, res) => {
 // profile page never received daysActive, goalsCount, totalSaved, etc.
 // The full getProfile in profile.controller.js already returns onboardingCompleted.
 
-export { signup, login, completeOnboarding,
+export { signup, login, logout, completeOnboarding,
   forgotPassword, resetPassword, };

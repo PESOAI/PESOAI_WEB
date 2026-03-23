@@ -4,7 +4,7 @@ import { verifyAdmin, requireAdminRole } from '../../middleware/webAuthMiddlewar
 import { ROLES } from '../../constants/index.js';
 import { logAccess } from '../../middleware/accessLog.middleware.js';
 import {
-  listUsersDetailed, getUserTransactions,
+  listUsersDetailed, getUserTransactions, getUserSessions,
   disableUser, enableUser,
   getMaintenanceStatus, setMaintenanceStatus,
   listAdmins, createAdmin, deleteAdmin,
@@ -18,6 +18,7 @@ router.use(verifyAdmin, requireAdminRole(ROLES.MAIN_ADMIN));
 
 router.get('/users',                          listUsersDetailed);
 router.get('/users/:userId/transactions',     logAccess, getUserTransactions);
+router.get('/users/:userId/sessions',         logAccess, getUserSessions);
 router.put('/users/:userId/disable',          disableUser);
 router.put('/users/:userId/enable',           enableUser);
 router.get('/maintenance',                    getMaintenanceStatus);
