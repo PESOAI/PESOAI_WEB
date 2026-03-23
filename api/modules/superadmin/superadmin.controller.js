@@ -1,8 +1,11 @@
 import bcrypt from 'bcryptjs';
 import pool from '../../config/db.js';
 import { MESSAGES } from '../../shared/constants/messages.js';
-import { parsePagination, isNonEmptyString, isValidEmail } from '../../shared/validators/index.js';
+import { parsePagination, isNonEmptyString, isValidEmail, isValidUUID } from '../../shared/validators/index.js';
 import { bustMaintenanceCache } from '../../middleware/maintenance.middleware.js';
+
+const invalidUserId = (res) =>
+  res.status(400).json({ success: false, message: 'Valid user ID is required.' });
 
 // ── GET /api/superadmin/users  — full user list with all fields ───────────────
 const listUsersDetailed = async (req, res) => {
@@ -55,7 +58,8 @@ const listUsersDetailed = async (req, res) => {
 // ── GET /api/superadmin/users/:userId/transactions  (LOGGED) ─────────────────
 const getUserTransactions = async (req, res) => {
   const { userId } = req.params;
-  const { page, limit, offset } = parsePagination(req.query);
+  if (!isValidUUID(userId)) return invalidUserId(res);
+  const { page, limit, offset } = parsePagination(req.query, 20, 100);
   try {
     const check = await pool.query('SELECT id FROM users WHERE id=$1 AND role=$2', [userId,'user']);
     if (!check.rowCount) return res.status(404).json({ success: false, message: MESSAGES.ADMIN_USER_NOT_FOUND });
@@ -87,6 +91,7 @@ const getUserTransactions = async (req, res) => {
 // â”€â”€ GET /api/superadmin/users/:userId/sessions  (LOGGED) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const getUserSessions = async (req, res) => {
   const { userId } = req.params;
+  if (!isValidUUID(userId)) return invalidUserId(res);
   const { page, limit, offset } = parsePagination(req.query, 20, 100);
   try {
     const check = await pool.query('SELECT id FROM users WHERE id=$1 AND role=$2', [userId, 'user']);
@@ -125,6 +130,7 @@ const getUserSessions = async (req, res) => {
 const disableUser = async (req, res) => {
   const { userId } = req.params;
   const { reason } = req.body;
+  if (!isValidUUID(userId)) return invalidUserId(res);
   try {
     const check = await pool.query('SELECT id,is_disabled FROM users WHERE id=$1 AND role=$2',[userId,'user']);
     if (!check.rowCount) return res.status(404).json({ success: false, message: MESSAGES.ADMIN_USER_NOT_FOUND });
@@ -149,6 +155,7 @@ const disableUser = async (req, res) => {
 // ── PUT /api/superadmin/users/:userId/enable ──────────────────────────────────
 const enableUser = async (req, res) => {
   const { userId } = req.params;
+  if (!isValidUUID(userId)) return invalidUserId(res);
   try {
     const check = await pool.query('SELECT id,is_disabled FROM users WHERE id=$1 AND role=$2',[userId,'user']);
     if (!check.rowCount) return res.status(404).json({ success: false, message: MESSAGES.ADMIN_USER_NOT_FOUND });

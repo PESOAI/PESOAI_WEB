@@ -76,6 +76,13 @@ const closeLatestSessionLog = async (userId) => {
   );
 };
 
+const buildDisabledMessage = (reason) => {
+  if (typeof reason === 'string' && reason.trim().length > 0) {
+    return `${MESSAGES.AUTH_ACCOUNT_DISABLED} Reason: ${reason.trim()}`;
+  }
+  return MESSAGES.AUTH_ACCOUNT_DISABLED;
+};
+
 // ─── POST /api/signup ─────────────────────────────────────────────────────────
 
 const signup = async (req, res) => {
@@ -140,7 +147,7 @@ const login = async (req, res) => {
     if (user.is_disabled || user.is_active === false) {
       return res.status(403).json({
         success: false,
-        message: MESSAGES.AUTH_ACCOUNT_DISABLED,
+        message: buildDisabledMessage(user.disabled_reason),
         code: 'ACCOUNT_DISABLED',
         accountDisabled: true,
         reason: user.disabled_reason || null,

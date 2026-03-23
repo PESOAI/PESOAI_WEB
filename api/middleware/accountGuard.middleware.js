@@ -1,5 +1,12 @@
 import pool from '../config/db.js';
 
+const buildDisabledMessage = (reason) => {
+  if (typeof reason === 'string' && reason.trim().length > 0) {
+    return `Account is disabled. Reason: ${reason.trim()}`;
+  }
+  return 'Account is disabled';
+};
+
 const accountGuard = async (req, res, next) => {
   const userId = req.user?.userId || req.user?.id;
   if (!userId) {
@@ -23,7 +30,7 @@ const accountGuard = async (req, res, next) => {
     if (user.is_active === false || user.is_disabled === true) {
       return res.status(403).json({
         success: false,
-        message: 'Account is disabled',
+        message: buildDisabledMessage(user.disabled_reason),
         code: 'ACCOUNT_DISABLED',
         reason: user.disabled_reason || null,
         email: user.email || null,

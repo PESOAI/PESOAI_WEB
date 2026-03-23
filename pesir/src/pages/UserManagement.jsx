@@ -3,14 +3,67 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom';
 import {
   Search, MapPin, Mail, Clock, Calendar,
-  CheckCircle, XCircle, Keyboard, FileText, FileSpreadsheet,
+  CheckCircle, XCircle, Keyboard, FileText, FileSpreadsheet, Eye,
 } from 'lucide-react';
 import { ConfirmModal, Toast, useConfirm } from '../components/GlobalConfirmModal';
 import { StaffActivityMonitor } from '../components/hub/StaffActivityMonitor';
+import UserAuditModal from '../components/users/UserAuditModal';
 import { generateUsersPDF  } from '../pdf/usersPDF';
 import { generateUsersXLSX } from '../pdf/usersExport';
 import logo from '../assets/logo.png';
 import { apiFetch } from '../utils/authClient';
+
+const DisableReasonModal = ({ open, userName, reason, onReasonChange, onCancel, onConfirm }) => {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={onCancel} />
+      <div
+        className="relative w-full max-w-[440px] rounded-[2rem] border border-white/60 bg-white p-8 shadow-2xl"
+        style={{
+          boxShadow: '0 32px 80px -12px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.05)',
+        }}
+      >
+        <h3 className="text-[1.4rem] font-black tracking-tight text-slate-900">Disable Account</h3>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">
+          Provide a reason for disabling <span className="font-bold text-slate-700">{userName}</span>.
+          This reason will be shown to the user in the account-disabled message.
+        </p>
+
+        <div className="mt-5">
+          <label htmlFor="disable-reason" className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+            Disable Reason
+          </label>
+          <textarea
+            id="disable-reason"
+            rows="4"
+            value={reason}
+            onChange={(e) => onReasonChange(e.target.value)}
+            placeholder="Example: Your account was temporarily disabled pending verification."
+            className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+          />
+        </div>
+
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 rounded-2xl border-2 border-slate-100 py-3.5 text-sm font-bold text-slate-500 transition hover:border-slate-200 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!reason.trim()}
+            className="flex-1 rounded-2xl bg-rose-500 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Disable Account
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const UserManagement = () => {
   const { maintKicks = [] } = useOutletContext() || {};
@@ -23,10 +76,14 @@ const UserManagement = () => {
   const [pdfBusy,      setPdfBusy]      = useState(false);
   const [xlsxBusy,     setXlsxBusy]    = useState(false);
   const [currentUser,  setCurrentUser]  = useState(null);
+  const [auditUser,    setAuditUser]    = useState(null);
+  const [disableModal, setDisableModal] = useState({ open: false, userId: null, userName: '' });
+  const [disableReason, setDisableReason] = useState('');
   const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
 
   // FIX: Main Admin OR Staff Admin can manage users (removed incorrect 'Super Admin' alias)
   const canManageUsers = currentUser?.role === 'Main Admin' || currentUser?.role === 'Staff Admin';
+  const canViewAudit   = currentUser?.role === 'Main Admin';
 
   const searchInputRef = useRef(null);
 
@@ -81,7 +138,7 @@ const UserManagement = () => {
 
   // FIX: statusOf now checks is_disabled + 3-day inactivity
   const statusOf = (u) => {
-    if (u.is_disabled) return 'Disabled';
+    if (u.is_disabled || u.is_active === false) return 'Disabled';
     if (!u.onboarding_completed) return 'Inactive';
     const last         = u.last_active_at ? new Date(u.last_active_at) : null;
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
@@ -98,37 +155,77 @@ const UserManagement = () => {
   };
 
   // FIX: now calls the correct superadmin disable/enable endpoints
+  const syncUserDisabledState = (userId, isDisabling, reason) => {
+    setUsers(prev => prev.map(u =>
+      u.id === userId
+        ? {
+          ...u,
+          is_disabled: isDisabling,
+          is_active: !isDisabling,
+          disabled_reason: isDisabling ? reason : null,
+          token_version: Number(u.token_version || 0) + 1,
+        }
+        : u
+    ));
+    setAuditUser(prev => (
+      prev?.id === userId
+        ? {
+          ...prev,
+          is_disabled: isDisabling,
+          is_active: !isDisabling,
+          disabled_reason: isDisabling ? reason : null,
+          token_version: Number(prev.token_version || 0) + 1,
+        }
+        : prev
+    ));
+  };
+
+  const submitDisableUser = async ({ userId, userName, reason }) => {
+    try {
+      const res = await apiFetch(`/api/superadmin/users/${userId}/disable`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ reason }),
+      });
+      if (res.ok) {
+        syncUserDisabledState(userId, true, reason);
+        setDisableModal({ open: false, userId: null, userName: '' });
+        setDisableReason('');
+        showToast(`${userName}'s account has been disabled.`, 'error');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.message || 'Failed to update account status.', 'error');
+      }
+    } catch {
+      showToast('Server unreachable. Please check your connection.', 'error');
+    }
+  };
+
   const handleStatusChange = async (userId, isCurrentlyDisabled, userName) => {
     if (!canManageUsers) return;
     const isDisabling = !isCurrentlyDisabled;
+    if (isDisabling) {
+      setDisableModal({ open: true, userId, userName });
+      setDisableReason('');
+      return;
+    }
+
     const ok = await confirm({
-      variant:  isDisabling ? 'disable' : 'enable',
-      title:    isDisabling ? 'Disable Account?' : 'Enable Account?',
-      subtitle: isDisabling
-        ? 'This user will immediately lose access to the system.'
-        : 'This user will regain full system access.',
+      variant:  'enable',
+      title:    'Enable Account?',
+      subtitle: 'This user will regain full system access.',
       subject: userName,
     });
     if (!ok) return;
     try {
-      const endpoint = isDisabling
-        ? `/api/superadmin/users/${userId}/disable`
-        : `/api/superadmin/users/${userId}/enable`;
-      const res = await apiFetch(endpoint, {
+      const res = await apiFetch(`/api/superadmin/users/${userId}/enable`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(isDisabling ? { reason: 'Disabled by admin' } : {}),
+        body:    JSON.stringify({}),
       });
       if (res.ok) {
-        setUsers(prev => prev.map(u =>
-          u.id === userId ? { ...u, is_disabled: isDisabling } : u
-        ));
-        showToast(
-          isDisabling
-            ? `${userName}'s account has been disabled.`
-            : `${userName}'s account has been re-enabled.`,
-          isDisabling ? 'error' : 'success'
-        );
+        syncUserDisabledState(userId, false, null);
+        showToast(`${userName}'s account has been re-enabled.`, 'success');
       } else {
         const err = await res.json().catch(() => ({}));
         showToast(err.message || 'Failed to update account status.', 'error');
@@ -207,6 +304,22 @@ const UserManagement = () => {
     <>
       <Toast toasts={toasts} />
       <ConfirmModal modal={modal} onConfirm={handleConfirm} onCancel={handleCancel} />
+      <DisableReasonModal
+        open={disableModal.open}
+        userName={disableModal.userName}
+        reason={disableReason}
+        onReasonChange={setDisableReason}
+        onCancel={() => {
+          setDisableModal({ open: false, userId: null, userName: '' });
+          setDisableReason('');
+        }}
+        onConfirm={() => submitDisableUser({
+          userId: disableModal.userId,
+          userName: disableModal.userName,
+          reason: disableReason.trim(),
+        })}
+      />
+      <UserAuditModal user={auditUser} onClose={() => setAuditUser(null)} />
 
       <div className="p-8 bg-slate-50 min-h-screen font-sans">
 
@@ -343,24 +456,36 @@ const UserManagement = () => {
 
                       {/* Actions — button flips between Disable and Enable based on is_disabled */}
                       <td className="px-6 py-5 text-center">
-                        <button
-                          onClick={() => handleStatusChange(user.id, isDisabledUser, name)}
-                          disabled={!canManageUsers}
-                          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm border ${
-                            !canManageUsers
-                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                        <div className="flex flex-col items-center gap-2">
+                          {canViewAudit && (
+                            <button
+                              onClick={() => setAuditUser(user)}
+                              className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 transition-all hover:bg-blue-100"
+                            >
+                              <Eye size={14} />
+                              View Audit
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleStatusChange(user.id, isDisabledUser, name)}
+                            disabled={!canManageUsers}
+                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm border ${
+                              !canManageUsers
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                : isDisabledUser
+                                  ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-md'
+                                  : 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50'
+                            }`}
+                          >
+                            {!canManageUsers
+                              ? 'Restricted'
                               : isDisabledUser
-                                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-md'
-                                : 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50'
-                          }`}
-                        >
-                          {!canManageUsers
-                            ? 'Restricted'
-                            : isDisabledUser
-                              ? <><CheckCircle size={14} /> Enable</>
-                              : <><XCircle size={14} /> Disable</>
-                          }
-                        </button>
+                                ? <><CheckCircle size={14} /> Enable</>
+                                : <><XCircle size={14} /> Disable</>
+                            }
+                          </button>
+                        </div>
                       </td>
 
                     </tr>
