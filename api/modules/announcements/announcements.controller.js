@@ -17,7 +17,10 @@ const createAnnouncement = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO announcements (title, body, priority, created_by)
        VALUES ($1,$2,$3,$4) RETURNING *`,
-      [title.trim(), body.trim(), priority, req.admin?.id ?? null]
+      // FIX: announcements.created_by is UUID (references users.id) but
+      // req.admin.id is an integer from the admins table — passing it causes
+      // "invalid input syntax for type uuid" crash. Pass NULL instead.
+      [title.trim(), body.trim(), priority, null]
     );
     const row = result.rows[0];
 

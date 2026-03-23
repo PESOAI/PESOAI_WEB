@@ -105,18 +105,16 @@ export const getKpis = async (req, res) => {
           ROUND(COUNT(CASE WHEN onboarding_completed = true THEN 1 END)::NUMERIC
             / NULLIF(COUNT(*),0)*100, 1) AS pct_active
         FROM users`),
+      // FIX: transaction_type='income' never exists (DB CHECK constraint allows only 'expense').
+      // Use monthly_income from user_profiles (set at onboarding) for avg_income/avg_savings.
       pool.query(`
         SELECT
-          ROUND(AVG(COALESCE(inc.total,0)),2) AS avg_income,
-          ROUND(AVG(COALESCE(exp.total,0)),2) AS avg_expenses,
-          ROUND(AVG(COALESCE(inc.total,0)-COALESCE(exp.total,0)),2) AS avg_savings
+          ROUND(AVG(COALESCE(up.monthly_income,0)),2)                               AS avg_income,
+          ROUND(AVG(COALESCE(exp.total,0)),2)                                        AS avg_expenses,
+          ROUND(AVG(COALESCE(up.monthly_income,0)-COALESCE(exp.total,0)),2)          AS avg_savings
         FROM users u
         LEFT JOIN notification_settings ns ON ns.user_id=u.id
-        LEFT JOIN (SELECT user_id,SUM(amount) AS total FROM transactions
-          WHERE transaction_type='income'
-            AND EXTRACT(MONTH FROM transaction_date)=EXTRACT(MONTH FROM NOW())
-            AND EXTRACT(YEAR  FROM transaction_date)=EXTRACT(YEAR  FROM NOW())
-          GROUP BY user_id) inc ON inc.user_id=u.id
+        LEFT JOIN user_profiles up ON up.user_id=u.id
         LEFT JOIN (SELECT user_id,SUM(amount) AS total FROM transactions
           WHERE transaction_type='expense'
             AND EXTRACT(MONTH FROM transaction_date)=EXTRACT(MONTH FROM NOW())
@@ -177,22 +175,21 @@ export const getHighRisk = async (req, res) => {
         NULLIF(TRIM(u.profile_picture),'') AS avatar_url,
         COALESCE(u.location, up.location,'No Data') AS location,
         COALESCE(u.last_active_at, u.created_at)    AS last_active_at,
-        COALESCE(ROUND(inc.total,2),0) AS total_income,
-        COALESCE(ROUND(exp.total,2),0) AS total_expenses,
-        CASE WHEN COALESCE(inc.total,0)=0 THEN 0
-             ELSE ROUND(COALESCE(exp.total,0)/inc.total*100,1) END AS expense_ratio,
-        CASE WHEN COALESCE(inc.total,0)=0 THEN 'High'
-             WHEN COALESCE(exp.total,0)/NULLIF(inc.total,0)>0.90 THEN 'High'
-             WHEN COALESCE(exp.total,0)/NULLIF(inc.total,0)>0.60 THEN 'Medium'
+        -- FIX: transactions only allows 'expense' type (DB CHECK constraint) so
+        -- transaction_type='income' always returns NULL. Use monthly_income from
+        -- user_profiles (set at onboarding) as the income source instead.
+        COALESCE(ROUND(up.monthly_income,2),0)       AS total_income,
+        COALESCE(ROUND(exp.total,2),0)               AS total_expenses,
+        CASE WHEN COALESCE(up.monthly_income,0)=0 THEN 0
+             ELSE ROUND(COALESCE(exp.total,0)/up.monthly_income*100,1)
+        END AS expense_ratio,
+        CASE WHEN COALESCE(up.monthly_income,0)=0       THEN 'High'
+             WHEN COALESCE(exp.total,0)/NULLIF(up.monthly_income,0)>0.90 THEN 'High'
+             WHEN COALESCE(exp.total,0)/NULLIF(up.monthly_income,0)>0.60 THEN 'Medium'
              ELSE 'Low' END AS risk_level
       FROM users u
       LEFT JOIN notification_settings ns ON ns.user_id=u.id
       LEFT JOIN user_profiles up ON up.user_id=u.id
-      LEFT JOIN (SELECT user_id,SUM(amount) AS total FROM transactions
-        WHERE transaction_type='income'
-          AND EXTRACT(MONTH FROM transaction_date)=EXTRACT(MONTH FROM NOW())
-          AND EXTRACT(YEAR  FROM transaction_date)=EXTRACT(YEAR  FROM NOW())
-        GROUP BY user_id) inc ON inc.user_id=u.id
       LEFT JOIN (SELECT user_id,SUM(amount) AS total FROM transactions
         WHERE transaction_type='expense'
           AND EXTRACT(MONTH FROM transaction_date)=EXTRACT(MONTH FROM NOW())
@@ -211,17 +208,25 @@ export const getMonthlyTrend = async (req, res) => {
   const { period = 'monthly' } = req.query;
   try {
     if (period === 'daily') {
+      // FIX: transaction_type='income' never exists (DB CHECK constraint).
+      // Use monthly_income/30 from user_profiles as a daily income proxy,
+      // joined per user then averaged across the platform.
       const result = await pool.query(`
-        SELECT day, ROUND(AVG(daily_income),2) AS avg_income, ROUND(AVG(daily_expenses),2) AS avg_expenses
-        FROM (SELECT transaction_date::DATE AS day, user_id,
-          SUM(CASE WHEN transaction_type='income'  THEN amount ELSE 0 END) AS daily_income,
-          SUM(CASE WHEN transaction_type='expense' THEN amount ELSE 0 END) AS daily_expenses
+        SELECT day,
+          ROUND(AVG(daily_income),2)   AS avg_income,
+          ROUND(AVG(daily_expenses),2) AS avg_expenses
+        FROM (
+          SELECT t2.transaction_date::DATE AS day, t2.user_id,
+            COALESCE(up.monthly_income,0) / 30.0          AS daily_income,
+            SUM(CASE WHEN t2.transaction_type='expense' THEN t2.amount ELSE 0 END) AS daily_expenses
           FROM transactions t2
           LEFT JOIN notification_settings ns ON ns.user_id = t2.user_id
+          LEFT JOIN user_profiles up ON up.user_id = t2.user_id
           WHERE COALESCE(ns.share_analytics, true) = true
             AND t2.transaction_date::DATE >= DATE_TRUNC('month',CURRENT_DATE)::DATE
             AND t2.transaction_date::DATE <= CURRENT_DATE
-          GROUP BY t2.transaction_date::DATE, t2.user_id) t
+          GROUP BY t2.transaction_date::DATE, t2.user_id, up.monthly_income
+        ) t
         GROUP BY day ORDER BY day`);
       return res.json(result.rows.map(r => {
         const d = new Date(r.day);
@@ -231,20 +236,25 @@ export const getMonthlyTrend = async (req, res) => {
       }));
     }
     if (period === 'weekly') {
+      // FIX: use monthly_income/4 as weekly income proxy per user.
       const result = await pool.query(`
         SELECT yr, wk, MIN(week_start) AS week_start,
-          ROUND(AVG(weekly_income),2) AS avg_income, ROUND(AVG(weekly_expenses),2) AS avg_expenses
-        FROM (SELECT EXTRACT(YEAR FROM transaction_date)::INT AS yr,
-          EXTRACT(WEEK FROM transaction_date)::INT AS wk,
-          DATE_TRUNC('week',transaction_date)::DATE AS week_start, user_id,
-          SUM(CASE WHEN transaction_type='income'  THEN amount ELSE 0 END) AS weekly_income,
-          SUM(CASE WHEN transaction_type='expense' THEN amount ELSE 0 END) AS weekly_expenses
+          ROUND(AVG(weekly_income),2)   AS avg_income,
+          ROUND(AVG(weekly_expenses),2) AS avg_expenses
+        FROM (
+          SELECT EXTRACT(YEAR FROM t2.transaction_date)::INT AS yr,
+            EXTRACT(WEEK FROM t2.transaction_date)::INT AS wk,
+            DATE_TRUNC('week',t2.transaction_date)::DATE AS week_start, t2.user_id,
+            COALESCE(up.monthly_income,0) / 4.0          AS weekly_income,
+            SUM(CASE WHEN t2.transaction_type='expense' THEN t2.amount ELSE 0 END) AS weekly_expenses
           FROM transactions t2
           LEFT JOIN notification_settings ns ON ns.user_id = t2.user_id
+          LEFT JOIN user_profiles up ON up.user_id = t2.user_id
           WHERE COALESCE(ns.share_analytics, true) = true
             AND t2.transaction_date >= DATE_TRUNC('week',CURRENT_DATE) - INTERVAL '7 weeks'
             AND t2.transaction_date <= CURRENT_DATE
-          GROUP BY yr, wk, week_start, t2.user_id) t
+          GROUP BY yr, wk, week_start, t2.user_id, up.monthly_income
+        ) t
         GROUP BY yr, wk ORDER BY yr, wk`);
       return res.json(result.rows.map(r => {
         const d = new Date(r.week_start);
@@ -255,17 +265,24 @@ export const getMonthlyTrend = async (req, res) => {
           avg_savings: parseFloat((r.avg_income||0)-(r.avg_expenses||0)) };
       }));
     }
+    // monthly (default)
+    // FIX: use monthly_income from user_profiles directly as the income figure per user/month.
     const result = await pool.query(`
-      SELECT yr, mo, ROUND(AVG(monthly_income),2) AS avg_income, ROUND(AVG(monthly_expenses),2) AS avg_expenses
-      FROM (SELECT EXTRACT(YEAR  FROM transaction_date)::INT AS yr,
-        EXTRACT(MONTH FROM transaction_date)::INT AS mo, user_id,
-        SUM(CASE WHEN transaction_type='income'  THEN amount ELSE 0 END) AS monthly_income,
-        SUM(CASE WHEN transaction_type='expense' THEN amount ELSE 0 END) AS monthly_expenses
-        FROM transactions
-        WHERE transaction_date >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '5 months'
-          AND transaction_date <= CURRENT_DATE
-          AND user_id IN (SELECT user_id FROM notification_settings WHERE share_analytics=TRUE)
-        GROUP BY yr, mo, user_id) t
+      SELECT yr, mo,
+        ROUND(AVG(monthly_income),2)   AS avg_income,
+        ROUND(AVG(monthly_expenses),2) AS avg_expenses
+      FROM (
+        SELECT EXTRACT(YEAR  FROM t.transaction_date)::INT AS yr,
+          EXTRACT(MONTH FROM t.transaction_date)::INT AS mo, t.user_id,
+          COALESCE(up.monthly_income,0)                AS monthly_income,
+          SUM(CASE WHEN t.transaction_type='expense' THEN t.amount ELSE 0 END) AS monthly_expenses
+        FROM transactions t
+        LEFT JOIN user_profiles up ON up.user_id = t.user_id
+        WHERE t.transaction_date >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '5 months'
+          AND t.transaction_date <= CURRENT_DATE
+          AND t.user_id IN (SELECT user_id FROM notification_settings WHERE share_analytics=TRUE)
+        GROUP BY yr, mo, t.user_id, up.monthly_income
+      ) t
       GROUP BY yr, mo ORDER BY yr, mo`);
     return res.json(result.rows.map(r => ({
       label: MONTHS[r.mo-1]+' '+r.yr,
@@ -278,6 +295,8 @@ export const getMonthlyTrend = async (req, res) => {
 export const getSavingsDistribution = async (req, res) => {
   const { period = 'monthly' } = req.query;
   try {
+    // FIX: transaction_type='income' never exists (DB CHECK constraint allows only 'expense').
+    // Use monthly_income from user_profiles as the income source.
     const result = await pool.query(`
       SELECT
         COUNT(CASE WHEN net < 0                     THEN 1 END) AS deficit,
@@ -285,14 +304,15 @@ export const getSavingsDistribution = async (req, res) => {
         COUNT(CASE WHEN ratio BETWEEN 0.20 AND 0.50 THEN 1 END) AS moderate,
         COUNT(CASE WHEN ratio > 0.50                THEN 1 END) AS high
       FROM (
-        SELECT user_id,
-          SUM(CASE WHEN transaction_type='income'  THEN amount ELSE 0 END)
-          - SUM(CASE WHEN transaction_type='expense' THEN amount ELSE 0 END) AS net,
-          (SUM(CASE WHEN transaction_type='income'  THEN amount ELSE 0 END)
-          - SUM(CASE WHEN transaction_type='expense' THEN amount ELSE 0 END))
-          / NULLIF(SUM(CASE WHEN transaction_type='income' THEN amount ELSE 0 END),0) AS ratio
+        SELECT t.user_id,
+          COALESCE(up.monthly_income,0)
+            - SUM(CASE WHEN t.transaction_type='expense' THEN t.amount ELSE 0 END) AS net,
+          (COALESCE(up.monthly_income,0)
+            - SUM(CASE WHEN t.transaction_type='expense' THEN t.amount ELSE 0 END))
+            / NULLIF(COALESCE(up.monthly_income,0),0) AS ratio
         FROM transactions t
         LEFT JOIN notification_settings ns ON ns.user_id = t.user_id
+        LEFT JOIN user_profiles up ON up.user_id = t.user_id
         WHERE COALESCE(ns.share_analytics, true) = true
           AND (
           ($1::text='daily'   AND t.transaction_date >= NOW() - INTERVAL '13 days')
@@ -301,7 +321,7 @@ export const getSavingsDistribution = async (req, res) => {
             AND EXTRACT(MONTH FROM t.transaction_date)=EXTRACT(MONTH FROM NOW())
             AND EXTRACT(YEAR  FROM t.transaction_date)=EXTRACT(YEAR  FROM NOW()))
         )
-        GROUP BY t.user_id
+        GROUP BY t.user_id, up.monthly_income
       ) sub`, [period]);
     const r = result.rows[0];
     res.json([

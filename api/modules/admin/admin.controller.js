@@ -15,7 +15,7 @@ const listUsersSummary = async (req, res) => {
 
     const dataQ   = search
       ? `SELECT u.id, u.username, u.email, u.created_at, u.is_disabled,
-                u.onboarding_completed,
+                u.onboarding_completed, u.last_active_at,
                 COUNT(t.id)::int       AS total_transactions,
                 COALESCE(MAX(t.created_at),'—') AS last_transaction_at
          FROM users u
@@ -23,7 +23,7 @@ const listUsersSummary = async (req, res) => {
          WHERE u.role='user' AND (u.username ILIKE $1 OR u.email ILIKE $1)
          GROUP BY u.id ORDER BY u.created_at DESC LIMIT $2 OFFSET $3`
       : `SELECT u.id, u.username, u.email, u.created_at, u.is_disabled,
-                u.onboarding_completed,
+                u.onboarding_completed, u.last_active_at,
                 COUNT(t.id)::int       AS total_transactions,
                 COALESCE(MAX(t.created_at),'—') AS last_transaction_at
          FROM users u
