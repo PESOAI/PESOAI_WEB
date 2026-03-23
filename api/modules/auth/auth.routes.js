@@ -2,7 +2,7 @@ import express from 'express';
 const router   = express.Router();
 import { verifyToken, authorizeOwner } from '../../middleware/mobileAuthMiddleware.js';
 import { signup, login, completeOnboarding,
-  forgotPassword, resetPassword, getUserProfileData, } from './auth.controller.js';
+  forgotPassword, resetPassword, } from './auth.controller.js';
 
 // ── Public (no token required) ────────────────────────────────────────────────
 router.post('/signup',          signup);
@@ -11,7 +11,11 @@ router.post('/onboarding',      completeOnboarding);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password',  resetPassword);
 
-// ── Light profile check (token required, used after login to re-verify onboarding) ──
-router.get('/profile/:userId',  verifyToken, authorizeOwner, getUserProfileData);
+// ── Light profile check removed ───────────────────────────────────────────────
+// GET /api/profile/:userId was here but it shadowed the full getProfile handler
+// in profile.controller.js (mounted via mobileUserRoutes).  Express matched this
+// stub first and returned only { success, onboardingCompleted } — never reaching
+// the real handler that returns all profile stats.
+// The full getProfile in profile.controller.js covers onboardingCompleted too.
 
 export default router;

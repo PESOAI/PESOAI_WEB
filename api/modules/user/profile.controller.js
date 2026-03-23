@@ -177,9 +177,9 @@ const updateBudget = async (req, res) => {
   }
 
   try {
-    // Sync both columns so getProfile returns consistent values
+    // Only update monthly_expenses — never clobber monthly_income here
     await pool.query(
-      'UPDATE user_profiles SET monthly_expenses = $1, monthly_income = $1 WHERE user_id = $2',
+      'UPDATE user_profiles SET monthly_expenses = $1 WHERE user_id = $2',
       [parseFloat(monthlyExpenses), userId]
     );
     return res.json({ success: true, message: MESSAGES.PROFILE_BUDGET_UPDATED, monthlyExpenses: parseFloat(monthlyExpenses) });

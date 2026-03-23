@@ -9,6 +9,7 @@ import {
   getMaintenanceStatus, setMaintenanceStatus,
   listAdmins, createAdmin, deleteAdmin,
   getAccessLogs,
+  updateAnnouncement,
 } from './superadmin.controller.js';
 import { deleteAnnouncement } from '../announcements/announcements.controller.js';
 
@@ -25,6 +26,8 @@ router.get('/admins',                         listAdmins);
 router.post('/admins',                        createAdmin);
 router.delete('/admins/:adminId',             deleteAdmin);
 router.get('/access-logs',                    getAccessLogs);
+// FIX BUG 5: superadmin can now update (toggle is_active) AND delete announcements
+router.put('/announcements/:id',              updateAnnouncement);
 router.delete('/announcements/:id',           deleteAnnouncement);
 
 export default router;

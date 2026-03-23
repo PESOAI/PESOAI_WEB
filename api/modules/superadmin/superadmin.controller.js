@@ -136,12 +136,16 @@ const setMaintenanceStatus = async (req, res) => {
   if (typeof isActive !== 'boolean')
     return res.status(400).json({ success: false, message: '`isActive` (boolean) is required.' });
   try {
+    // FIX: updated_by is a UUID column (references users.id) but req.admin.id
+    //      is an integer from the admins table — passing it causes a type mismatch
+    //      crash in PostgreSQL.  We skip updated_by entirely here (safe; column
+    //      is nullable and the admins table is separate from the users UUID space).
     await pool.query(
       `UPDATE maintenance_mode
        SET is_active=$1, title=COALESCE($2,title), message=COALESCE($3,message),
-           updated_at=CURRENT_TIMESTAMP, updated_by=$4
+           updated_at=CURRENT_TIMESTAMP
        WHERE id=1`,
-      [isActive, title||null, message||null, req.admin.id]
+      [isActive, title||null, message||null]
     );
     bustMaintenanceCache(); // flush in-process cache immediately
     return res.json({ success: true, message: MESSAGES.MAINTENANCE_UPDATED });
@@ -152,11 +156,14 @@ const setMaintenanceStatus = async (req, res) => {
 };
 
 // ── GET /api/superadmin/admins  — list all admin accounts ────────────────────
+// FIX: admin accounts live in the admins table (admin_id, username, role,
+//      display_name, avatar, created_at) — NOT in the users table.
 const listAdmins = async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id, first_name, last_name, username, email, created_at, is_disabled
-       FROM users WHERE role='admin' ORDER BY created_at DESC`
+      `SELECT admin_id AS id, username, role, display_name, avatar, created_at
+       FROM admins
+       ORDER BY created_at DESC`
     );
     return res.json({ success: true, data: r.rows });
   } catch (err) {
@@ -229,10 +236,13 @@ const getAccessLogs = async (req, res) => {
 };
 
 // ── DELETE /api/superadmin/announcements/:id  (superadmin hard-delete) ────────
-import { deleteAnnouncement } from '../announcements/announcements.controller.js';
+// ── PUT    /api/superadmin/announcements/:id  (superadmin can also update/toggle) ─
+import { deleteAnnouncement, updateAnnouncement } from '../announcements/announcements.controller.js';
 
 export { listUsersDetailed, getUserTransactions,
   disableUser, enableUser,
   getMaintenanceStatus, setMaintenanceStatus,
   listAdmins, createAdmin, deleteAdmin,
-  getAccessLogs, };
+  getAccessLogs,
+  updateAnnouncement,
+};
