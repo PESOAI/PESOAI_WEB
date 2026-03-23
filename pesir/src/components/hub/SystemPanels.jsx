@@ -15,7 +15,7 @@ import logo from '../../assets/logo.png';
 import { apiFetch } from '../../utils/authClient';
 import { getCurrentUser } from '../../utils/clientSession';
 
-const BASE = 'http://localhost:5000';
+const BASE = '';
 
 /* ═══════════════════════════════════════════════════════════════
    DESIGN TOKENS

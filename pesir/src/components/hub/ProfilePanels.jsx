@@ -13,7 +13,7 @@ import { apiFetch } from '../../utils/authClient';
 import { getCurrentUser, setCurrentUser } from '../../utils/clientSession';
 import { useFormValidation } from '../../hooks/useFormValidation';
 
-const BASE = 'http://localhost:5000';
+const BASE = '';
 
 // ─── My Profile Panel ────────────────────────────────────────
 export const ProfilePanel = ({ currentUser, showToast, onAvatarUpdate }) => {

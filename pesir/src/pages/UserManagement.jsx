@@ -1,6 +1,6 @@
 ﻿// pages/UserManagement.jsx — PESO AI
 import React, { useState, useEffect, useRef } from 'react';
-import { useOutletContext, useLocation } from 'react-router-dom';     // ← ADDED useLocation
+import { useOutletContext, useLocation } from 'react-router-dom';
 import {
   Search, MapPin, Mail, Clock, Calendar,
   CheckCircle, XCircle, Keyboard, FileText, FileSpreadsheet,
@@ -14,7 +14,7 @@ import { apiFetch } from '../utils/authClient';
 
 const UserManagement = () => {
   const { maintKicks = [] } = useOutletContext() || {};
-  const location = useLocation();                                       // ← ADDED
+  const location = useLocation();
 
   const [users,        setUsers]        = useState([]);
   const [searchTerm,   setSearchTerm]   = useState('');
@@ -24,15 +24,15 @@ const UserManagement = () => {
   const [xlsxBusy,     setXlsxBusy]    = useState(false);
   const [currentUser,  setCurrentUser]  = useState(null);
   const { modal, toasts, confirm, showToast, handleConfirm, handleCancel } = useConfirm();
-  const canManageUsers = currentUser?.role === 'Main Admin' || currentUser?.role === 'Super Admin';
+
+  // FIX: Main Admin OR Staff Admin can manage users (removed incorrect 'Super Admin' alias)
+  const canManageUsers = currentUser?.role === 'Main Admin' || currentUser?.role === 'Staff Admin';
 
   const searchInputRef = useRef(null);
 
-  // ── Apply filter passed from AdminDashboard KPI card navigation ──
-  // location.state = { filter: 'All' | 'Active' | 'Inactive' }
   useEffect(() => {
     const inboundFilter = location.state?.filter;
-    if (inboundFilter && ['All', 'Active', 'Inactive'].includes(inboundFilter)) {
+    if (inboundFilter && ['All', 'Active', 'Inactive', 'Disabled'].includes(inboundFilter)) {
       setFilterStatus(inboundFilter);
     }
   }, [location.state]);
@@ -48,9 +48,7 @@ const UserManagement = () => {
       if (e.key === 'Escape') { setSearchTerm(''); setFilterStatus('All'); }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const fetchCurrentUser = async () => {
@@ -59,29 +57,37 @@ const UserManagement = () => {
       if (!res.ok) return;
       const data = await res.json();
       setCurrentUser({
-        id: data.userId || null,
-        name: data.displayName || 'Admin',
+        id:          data.userId      || null,
+        name:        data.displayName || 'Admin',
         displayName: data.displayName || 'Admin',
-        role: data.role || null,
+        role:        data.role        || null,
       });
-    } catch {
-      setCurrentUser(null);
-    }
+    } catch { setCurrentUser(null); }
   };
 
   const fetchUsers = async () => {
     try {
-      const res = await apiFetch('http://localhost:5000/api/users');
+      const res  = await apiFetch('/api/users');
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) { console.error('Error fetching users:', err); }
     finally { setLoading(false); }
   };
 
-  const fullName = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
-  const statusOf = (u) => u.onboarding_completed ? 'Active' : 'Inactive';
-  const avatarFallback = (name) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=E2E8F0&color=334155`;
+  const fullName      = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+  const avatarFallback = (name) =>
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=E2E8F0&color=334155`;
   const userAvatarSrc = (u) => u.avatar_url || u.profile_picture || avatarFallback(fullName(u));
+
+  // FIX: statusOf now checks is_disabled + 3-day inactivity
+  const statusOf = (u) => {
+    if (u.is_disabled) return 'Disabled';
+    if (!u.onboarding_completed) return 'Inactive';
+    const last         = u.last_active_at ? new Date(u.last_active_at) : null;
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    if (!last || last < threeDaysAgo) return 'Inactive';
+    return 'Active';
+  };
 
   const formatDate = d => {
     if (!d) return 'Never';
@@ -91,10 +97,10 @@ const UserManagement = () => {
     });
   };
 
-  const handleStatusChange = async (userId, currentOnboarding, userName) => {
+  // FIX: now calls the correct superadmin disable/enable endpoints
+  const handleStatusChange = async (userId, isCurrentlyDisabled, userName) => {
     if (!canManageUsers) return;
-    const newOnboarding = !currentOnboarding;
-    const isDisabling   = !newOnboarding;
+    const isDisabling = !isCurrentlyDisabled;
     const ok = await confirm({
       variant:  isDisabling ? 'disable' : 'enable',
       title:    isDisabling ? 'Disable Account?' : 'Enable Account?',
@@ -105,50 +111,56 @@ const UserManagement = () => {
     });
     if (!ok) return;
     try {
-      const res = await apiFetch(`http://localhost:5000/api/users/${userId}`, {
-        method:  'PATCH',
+      const endpoint = isDisabling
+        ? `/api/superadmin/users/${userId}/disable`
+        : `/api/superadmin/users/${userId}/enable`;
+      const res = await apiFetch(endpoint, {
+        method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ onboarding_completed: newOnboarding }),
+        body:    JSON.stringify(isDisabling ? { reason: 'Disabled by admin' } : {}),
       });
       if (res.ok) {
         setUsers(prev => prev.map(u =>
-          u.id === userId ? { ...u, onboarding_completed: newOnboarding } : u
+          u.id === userId ? { ...u, is_disabled: isDisabling } : u
         ));
         showToast(
-          isDisabling ? `${userName}'s account has been disabled.` : `${userName}'s account has been enabled.`,
+          isDisabling
+            ? `${userName}'s account has been disabled.`
+            : `${userName}'s account has been re-enabled.`,
           isDisabling ? 'error' : 'success'
         );
       } else {
-        showToast('Failed to update account status. Try again.', 'error');
+        const err = await res.json().catch(() => ({}));
+        showToast(err.message || 'Failed to update account status.', 'error');
       }
     } catch {
       showToast('Server unreachable. Please check your connection.', 'error');
     }
   };
 
+  // FIX: filter now handles Disabled + Inactive correctly
   const filteredUsers = users.filter(user => {
     const name = fullName(user);
+    const s    = statusOf(user);
     const matchesSearch =
       name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.location?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus =
-      filterStatus === 'All' ||
-      (filterStatus === 'Active'   && user.onboarding_completed === true) ||
-      (filterStatus === 'Inactive' && user.onboarding_completed !== true);
+      filterStatus === 'All'      ||
+      (filterStatus === 'Active'   && s === 'Active')   ||
+      (filterStatus === 'Inactive' && s === 'Inactive') ||
+      (filterStatus === 'Disabled' && s === 'Disabled');
     return matchesSearch && matchesStatus;
   });
 
-  // ── Export handlers ────────────────────────────────────────
+  // ── Export handlers ───────────────────────────────────────
   const handleExportPDF = async () => {
     setPdfBusy(true);
-    try {
-      await generateUsersPDF(filteredUsers, { search: searchTerm, status: filterStatus }, logo);
-    } catch (e) {
-      console.error('PDF error:', e);
-      showToast('PDF export failed. Try again.', 'error');
-    } finally { setPdfBusy(false); }
+    try { await generateUsersPDF(filteredUsers, { search: searchTerm, status: filterStatus }, logo); }
+    catch (e) { console.error('PDF error:', e); showToast('PDF export failed. Try again.', 'error'); }
+    finally { setPdfBusy(false); }
   };
 
   const handleExportXLSX = async () => {
@@ -156,30 +168,32 @@ const UserManagement = () => {
     try {
       await generateUsersXLSX(filteredUsers, { search: searchTerm, status: filterStatus });
       showToast(`Excel exported — ${filteredUsers.length} users.`, 'success');
-    } catch (e) {
-      console.error('Excel error:', e);
-      showToast('Excel export failed. Try again.', 'error');
-    } finally { setXlsxBusy(false); }
+    } catch (e) { console.error('Excel error:', e); showToast('Excel export failed. Try again.', 'error'); }
+    finally { setXlsxBusy(false); }
   };
 
-  const anyBusy       = pdfBusy || xlsxBusy;
-  const activeCount   = users.filter(u => u.onboarding_completed === true).length;
-  const inactiveCount = users.filter(u => u.onboarding_completed !== true).length;
+  const anyBusy        = pdfBusy || xlsxBusy;
+  const activeCount    = users.filter(u => statusOf(u) === 'Active').length;
+  const inactiveCount  = users.filter(u => statusOf(u) === 'Inactive').length;
+  const disabledCount  = users.filter(u => statusOf(u) === 'Disabled').length;
 
-  // ── Avatar ─────────────────────────────────────────────────
-  const Avatar = ({ user, size = 10 }) => {
-    const sizeClass = `h-${size} w-${size}`;
-    return (
-      <img
-        src={userAvatarSrc(user)}
-        alt={fullName(user)}
-        className={`${sizeClass} rounded-full object-cover border border-slate-200`}
-        onError={(e) => {
-          e.currentTarget.onerror = null;
-          e.currentTarget.src = avatarFallback(fullName(user));
-        }}
-      />
-    );
+  const Avatar = ({ user, size = 10 }) => (
+    <img
+      src={userAvatarSrc(user)}
+      alt={fullName(user)}
+      className={`h-${size} w-${size} rounded-full object-cover border border-slate-200`}
+      onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFallback(fullName(user)); }}
+    />
+  );
+
+  // Status badge config
+  const statusBadge = (status) => {
+    switch (status) {
+      case 'Active':   return { bg: 'bg-emerald-50 text-emerald-600 border-emerald-100', dot: 'bg-emerald-500 animate-pulse' };
+      case 'Inactive': return { bg: 'bg-rose-50 text-rose-600 border-rose-100',         dot: 'bg-rose-500' };
+      case 'Disabled': return { bg: 'bg-slate-100 text-slate-500 border-slate-200',     dot: 'bg-slate-400' };
+      default:         return { bg: 'bg-slate-100 text-slate-400 border-slate-100',     dot: 'bg-slate-300' };
+    }
   };
 
   if (loading) return (
@@ -196,7 +210,7 @@ const UserManagement = () => {
 
       <div className="p-8 bg-slate-50 min-h-screen font-sans">
 
-        {/* ── HEADER ─────────────────────────────────────────── */}
+        {/* ── HEADER ───────────────────────────────────────── */}
         <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-800 tracking-tight">User Access Control</h1>
@@ -209,7 +223,6 @@ const UserManagement = () => {
                   View Only
                 </span>
               )}
-              {/* ── Show badge when arriving from dashboard with a pre-set filter ── */}
               {location.state?.filter && location.state.filter !== 'All' && (
                 <span className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-md text-[10px] font-bold uppercase tracking-wider">
                   Filtered: {location.state.filter} users
@@ -219,7 +232,6 @@ const UserManagement = () => {
           </div>
 
           <div className="flex flex-wrap gap-2 items-center">
-            {/* Search */}
             <div className="relative w-full md:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
@@ -229,24 +241,14 @@ const UserManagement = () => {
                 value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
               />
             </div>
-
-            {/* Export button group  PDF | Excel */}
             <div className="flex items-center rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden divide-x divide-slate-200">
-              <button
-                onClick={handleExportPDF}
-                disabled={anyBusy}
-                title="Export PDF"
-                className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-red-50 hover:text-red-600 transition-all disabled:opacity-50"
-              >
+              <button onClick={handleExportPDF} disabled={anyBusy} title="Export PDF"
+                className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-red-50 hover:text-red-600 transition-all disabled:opacity-50">
                 <FileText size={16} className="text-red-500" />
                 {pdfBusy ? 'Generating…' : 'Export PDF'}
               </button>
-              <button
-                onClick={handleExportXLSX}
-                disabled={anyBusy}
-                title="Export Excel (.xlsx)"
-                className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-green-50 hover:text-green-700 transition-all disabled:opacity-50"
-              >
+              <button onClick={handleExportXLSX} disabled={anyBusy} title="Export Excel (.xlsx)"
+                className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-green-50 hover:text-green-700 transition-all disabled:opacity-50">
                 <FileSpreadsheet size={16} className="text-green-600" />
                 {xlsxBusy ? 'Exporting…' : 'Export Excel'}
               </button>
@@ -254,20 +256,23 @@ const UserManagement = () => {
           </div>
         </div>
 
-        {/* ── STAFF ACTIVITY MONITOR ─────────────────────────── */}
-        {currentUser?.role === 'Super Admin' && (
+        {/* ── STAFF ACTIVITY MONITOR ─────────────────────── */}
+        {currentUser?.role === 'Main Admin' && (
           <StaffActivityMonitor kicks={maintKicks} />
         )}
 
-        {/* ── FILTER PILLS ───────────────────────────────────── */}
+        {/* ── FILTER PILLS ─────────────────────────────────── */}
         <div className="flex items-center gap-3 mb-5">
           {[
-            { label: 'All',      count: users.length,   color: 'bg-slate-100 text-slate-600 border-slate-200'      },
-            { label: 'Active',   count: activeCount,    color: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
-            { label: 'Inactive', count: inactiveCount,  color: 'bg-rose-50 text-rose-600 border-rose-200'          },
+            { label: 'All',      count: users.length,  color: 'bg-slate-100 text-slate-600 border-slate-200'       },
+            { label: 'Active',   count: activeCount,   color: 'bg-emerald-50 text-emerald-600 border-emerald-200'  },
+            { label: 'Inactive', count: inactiveCount, color: 'bg-rose-50 text-rose-600 border-rose-200'           },
+            { label: 'Disabled', count: disabledCount, color: 'bg-slate-100 text-slate-500 border-slate-300'       },
           ].map(({ label, count, color }) => (
             <button key={label} onClick={() => setFilterStatus(label)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${filterStatus === label ? 'ring-2 ring-offset-1 ring-blue-400 ' + color : color + ' opacity-60 hover:opacity-100'}`}>
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                filterStatus === label ? 'ring-2 ring-offset-1 ring-blue-400 ' + color : color + ' opacity-60 hover:opacity-100'
+              }`}>
               {label}
               <span className="bg-white/60 px-1.5 py-0.5 rounded-full text-[10px] font-black">{count}</span>
             </button>
@@ -277,7 +282,7 @@ const UserManagement = () => {
           </span>
         </div>
 
-        {/* ── TABLE ──────────────────────────────────────────── */}
+        {/* ── TABLE ────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -290,9 +295,10 @@ const UserManagement = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredUsers.length > 0 ? filteredUsers.map(user => {
-                  const name   = fullName(user);
-                  const status = statusOf(user);
-                  const isAct  = status === 'Active';
+                  const name            = fullName(user);
+                  const status          = statusOf(user);
+                  const isDisabledUser  = !!user.is_disabled;
+                  const badge           = statusBadge(status);
                   return (
                     <tr key={user.id} className="hover:bg-slate-50/50 transition-colors group">
 
@@ -327,28 +333,33 @@ const UserManagement = () => {
                         </div>
                       </td>
 
-                      {/* Status */}
+                      {/* Status badge — now handles Active / Inactive / Disabled */}
                       <td className="px-6 py-5 text-center">
-                        <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-[10px] font-bold uppercase border ${isAct ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${isAct ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                        <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-[10px] font-bold uppercase border ${badge.bg}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${badge.dot}`} />
                           {status}
                         </span>
                       </td>
 
-                      {/* Actions */}
+                      {/* Actions — button flips between Disable and Enable based on is_disabled */}
                       <td className="px-6 py-5 text-center">
                         <button
-                          onClick={() => handleStatusChange(user.id, user.onboarding_completed, name)}
+                          onClick={() => handleStatusChange(user.id, isDisabledUser, name)}
                           disabled={!canManageUsers}
                           className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm border ${
-                            (!canManageUsers)
+                            !canManageUsers
                               ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                              : isAct
-                                ? 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50'
-                                : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-md'
+                              : isDisabledUser
+                                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-md'
+                                : 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50'
                           }`}
                         >
-                          {!canManageUsers ? 'Restricted' : (isAct ? <><XCircle size={14} /> Disable</> : <><CheckCircle size={14} /> Enable</>)}
+                          {!canManageUsers
+                            ? 'Restricted'
+                            : isDisabledUser
+                              ? <><CheckCircle size={14} /> Enable</>
+                              : <><XCircle size={14} /> Disable</>
+                          }
                         </button>
                       </td>
 

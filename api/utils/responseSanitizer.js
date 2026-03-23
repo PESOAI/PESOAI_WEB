@@ -1,8 +1,7 @@
-// api/utils/responseSanitizer.js
 export const toSafeUser = (admin) => ({
-  userId: admin.id ?? admin.admin_id,
+  userId:      admin.id ?? admin.admin_id,
   displayName: admin.display_name || admin.displayName || admin.username || admin.name,
-  username: admin.username || admin.name || null,
-  role: admin.role,
-  avatar: admin.avatar || null, // ← IDAGDAG LANG ITO
-}); 
+  username:    admin.username || admin.name || null,
+  role:        admin.role,
+  avatar:      admin.avatar || null,
+});
