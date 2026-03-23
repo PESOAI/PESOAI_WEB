@@ -11,14 +11,21 @@ const getProfile = async (req, res) => {
   const { userId } = req.params;
 
   try {
+    // Ensure skeleton user_profiles row exists before SELECT so LEFT JOIN
+    // always returns a row and phone/location saves never fail silently.
+    await pool.query(
+      `INSERT INTO user_profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+      [userId]
+    );
+
     const result = await pool.query(`
       SELECT
         u.id, u.first_name, u.last_name, u.email, u.username,
         u.profile_picture, u.created_at,
         p.age, p.gender, p.occupation,
         p.monthly_income, p.monthly_expenses,
-        COALESCE(p.phone, u.phone)         AS phone,
-        COALESCE(p.location, u.location)     AS location,
+        COALESCE(p.phone,    u.phone)    AS phone,
+        COALESCE(p.location, u.location) AS location,
         p.financial_goals, p.risk_tolerance,
         COALESCE(CURRENT_DATE - u.created_at::date, 0) AS days_active
       FROM users u
@@ -31,13 +38,6 @@ const getProfile = async (req, res) => {
     }
 
     const user = result.rows[0];
-
-    // Ensure a user_profiles row exists — creates a skeleton if onboarding was skipped
-    // This prevents phone/location saves from silently failing
-    await pool.query(
-      `INSERT INTO user_profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
-      [userId]
-    );
 
     const [goalsResult, completedResult, savedResult] = await Promise.all([
       pool.query('SELECT COUNT(*) AS count FROM savings_goals WHERE user_id = $1', [userId]),
@@ -100,6 +100,7 @@ const updateProfile = async (req, res) => {
       if (check.rows.length > 0) return res.status(409).json({ success: false, message: MESSAGES.AUTH_USERNAME_TAKEN });
     }
 
+    // Update core user fields
     const updates = [];
     const values  = [];
     let idx = 1;
@@ -114,15 +115,11 @@ const updateProfile = async (req, res) => {
       await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}`, values);
     }
 
-    // Mirror location + phone to users table (fallback for getProfile COALESCE)
-    if (location !== undefined) {
-      await pool.query('UPDATE users SET location = $1 WHERE id = $2', [location || null, userId]);
-    }
-    if (phone !== undefined) {
-      await pool.query('UPDATE users SET phone = $1 WHERE id = $2', [phone || null, userId]);
-    }
+    // Mirror phone + location to users table (COALESCE fallback in getProfile)
+    if (phone    !== undefined) await pool.query('UPDATE users SET phone    = $1 WHERE id = $2', [phone    || null, userId]);
+    if (location !== undefined) await pool.query('UPDATE users SET location = $1 WHERE id = $2', [location || null, userId]);
 
-    // Build user_profiles update — phone, location, and/or riskTolerance
+    // UPSERT into user_profiles — creates row if onboarding was skipped
     const profileUpdates = [];
     const profileValues  = [userId];
     let pidx = 2;
@@ -132,7 +129,6 @@ const updateProfile = async (req, res) => {
     if (riskTolerance !== undefined) { profileUpdates.push(`risk_tolerance = $${pidx++}`); profileValues.push(riskTolerance); }
 
     if (profileUpdates.length > 0) {
-      // UPSERT — creates the row if onboarding somehow skipped it
       const cols = profileUpdates.map(u => u.split(' = ')[0].trim());
       await pool.query(
         `INSERT INTO user_profiles (user_id, ${cols.join(', ')})
@@ -154,7 +150,7 @@ const updateProfile = async (req, res) => {
 // ─── PUT /api/profile/:userId/picture ────────────────────────────────────────
 
 const uploadProfilePicture = async (req, res) => {
-  const { userId }        = req.params;
+  const { userId }         = req.params;
   const { profilePicture } = req.body;
 
   if (!isNonEmptyString(profilePicture) || !profilePicture.startsWith('data:image/')) {
@@ -173,7 +169,7 @@ const uploadProfilePicture = async (req, res) => {
 // ─── PUT /api/profile/:userId/budget ─────────────────────────────────────────
 
 const updateBudget = async (req, res) => {
-  const { userId }         = req.params;
+  const { userId }          = req.params;
   const { monthlyExpenses } = req.body;
 
   if (!isNonNegativeNumber(monthlyExpenses)) {
@@ -181,7 +177,7 @@ const updateBudget = async (req, res) => {
   }
 
   try {
-    // ✅ Update BOTH monthly_expenses AND monthly_income to keep them in sync
+    // Sync both columns so getProfile returns consistent values
     await pool.query(
       'UPDATE user_profiles SET monthly_expenses = $1, monthly_income = $1 WHERE user_id = $2',
       [parseFloat(monthlyExpenses), userId]
@@ -196,7 +192,7 @@ const updateBudget = async (req, res) => {
 // ─── PUT /api/profile/:userId/budget-period ──────────────────────────────────
 
 const updateBudgetPeriod = async (req, res) => {
-  const { userId }     = req.params;
+  const { userId }       = req.params;
   const { budgetPeriod } = req.body;
 
   if (!VALID_BUDGET_PERIODS.includes(budgetPeriod)) {
@@ -218,7 +214,7 @@ const updateBudgetPeriod = async (req, res) => {
 // ─── PUT /api/profile/:userId/password ───────────────────────────────────────
 
 const changePassword = async (req, res) => {
-  const { userId }              = req.params;
+  const { userId }               = req.params;
   const { oldPassword, newPassword } = req.body;
 
   if (!isNonEmptyString(oldPassword)) return validationError(res, 'Current password is required.');
