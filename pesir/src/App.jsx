@@ -9,6 +9,7 @@ import { migrateSensitiveStorage, clearSensitiveSessionData } from './utils/clie
 import LandingPage from './pages/LandingPage';
 import AdminLayout from './layouts/AdminLayout';
 import AdminDashboard from './pages/AdminDashboard';
+import SystemLogs from './pages/SystemLogs';
 import UserManagement from './pages/UserManagement';
 
 const ProtectedRoute = ({ children }) => {
@@ -103,6 +104,7 @@ function App() {
           )}
         >
           <Route index element={<AdminDashboard />} />
+          <Route path="logs" element={<SystemLogs />} />
           <Route path="users" element={<UserManagement />} />
         </Route>
 

@@ -23,6 +23,13 @@ async function initSchema() {
       user_name VARCHAR(100),
       message   TEXT
     )`);
+    await pool.query(`ALTER TABLE public.system_logs ADD COLUMN IF NOT EXISTS source      VARCHAR(100)`);
+    await pool.query(`ALTER TABLE public.system_logs ADD COLUMN IF NOT EXISTS error_code  VARCHAR(100)`);
+    await pool.query(`ALTER TABLE public.system_logs ADD COLUMN IF NOT EXISTS status_code INTEGER`);
+    await pool.query(`ALTER TABLE public.system_logs ADD COLUMN IF NOT EXISTS user_id     UUID`);
+    await pool.query(`ALTER TABLE public.system_logs ADD COLUMN IF NOT EXISTS metadata    JSONB DEFAULT '{}'::jsonb`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp
+      ON public.system_logs (timestamp DESC)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS public.admin_logs (
       id          SERIAL PRIMARY KEY,
       admin_id    INTEGER,

@@ -365,6 +365,7 @@ const AdminLayout = () => {
 
   const pageMenuItems = [
     { name: 'Analytics Dashboard', path: '/admin', icon: <LayoutDashboard size={18} />, adminOnly: false },
+    { name: 'System Logs', path: '/admin/logs', icon: <ActivitySquare size={18} />, adminOnly: false },
     { name: 'User Management', path: '/admin/users', icon: <Users size={18} />, adminOnly: true },
   ];
 
@@ -377,6 +378,7 @@ const AdminLayout = () => {
 
   const getHeaderTitle = () => {
     if (location.pathname === '/admin') return 'Financial Overview';
+    if (location.pathname === '/admin/logs') return 'System Error Logs';
     if (location.pathname === '/admin/users') return 'Client Database';
     return 'Admin Control Center';
   };

@@ -60,6 +60,14 @@ export const Toast = ({ toasts }) => (
 //  CONFIRM MODAL VARIANTS CONFIG
 // ══════════════════════════════════════════════════════════════
 const VARIANTS = {
+  clear: {
+    icon:        <AlertTriangle size={26} />,
+    iconBg:      'bg-rose-500',
+    iconColor:   'text-white',
+    confirmBg:   'bg-rose-500 hover:bg-rose-600',
+    confirmText: 'Clear Logs',
+    badgeBg:     'bg-rose-50 text-rose-700 border-rose-200',
+  },
   logout: {
     icon:        <LogOut size={26} />,
     iconBg:      'bg-slate-900',

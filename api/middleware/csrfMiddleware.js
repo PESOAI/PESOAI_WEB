@@ -10,6 +10,7 @@ const EXEMPT_PATHS = new Set([
   '/api/login', '/api/signup', '/api/forgot-password',
   '/api/reset-password', '/api/onboarding',
   '/api/status', '/api/ai/health',
+  '/api/logs/mobile-error',
 ]);
 
 export default function csrfMiddleware(req, res, next) {
