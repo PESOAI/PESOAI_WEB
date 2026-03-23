@@ -271,22 +271,12 @@ const completeOnboarding = async (req, res) => {
   }
 };
 
-// ─── GET /api/profile/:userId ─────────────────────────────────────────────────
+// getUserProfileData removed — it registered GET /api/profile/:userId in
+// auth.routes.js which shadowed the full getProfile handler in
+// profile.controller.js.  Express matched this stub first (mounted earlier
+// in server.js) and returned only { success, onboardingCompleted }, so the
+// profile page never received daysActive, goalsCount, totalSaved, etc.
+// The full getProfile in profile.controller.js already returns onboardingCompleted.
 
-const getUserProfileData = async (req, res) => {
-  const { userId } = req.params;
-
-  try {
-    const user = await getUserById(userId);
-    if (!user) return res.status(404).json({ success: false, message: MESSAGES.USER_NOT_FOUND });
-
-    return res.json({ success: true, onboardingCompleted: user.onboarding_completed });
-
-  } catch (err) {
-    console.error('[Auth] getUserProfileData error:', err.message);
-    return res.status(500).json({ success: false, message: MESSAGES.SERVER_ERROR });
-  }
-};
-
-export { signup, login, completeOnboarding, getUserProfileData,
+export { signup, login, completeOnboarding,
   forgotPassword, resetPassword, };
