@@ -97,7 +97,11 @@ const AdminLayout = () => {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data || typeof data.active !== 'boolean') return;
-        const nextEndsAt = data.active && data.endsAt ? Number(data.endsAt) : null;
+        // FIX: data.endsAt from the server is a TIMESTAMPTZ ISO string
+        // (e.g. "2026-03-23T16:00:00.000Z"). Number(isoString) = NaN, which makes
+        // Number.isFinite() return false and endsAt gets set to null every 4 seconds,
+        // silently cancelling the countdown timer.  Use new Date().getTime() instead.
+        const nextEndsAt = data.active && data.endsAt ? new Date(data.endsAt).getTime() : null;
         setMaintenance({ active: data.active, endsAt: Number.isFinite(nextEndsAt) ? nextEndsAt : null });
         if (!data.active) {
           setMaintRemaining(null);
@@ -121,7 +125,8 @@ const AdminLayout = () => {
             return;
           }
           if (typeof msg.active === 'boolean') {
-            const nextEndsAt = msg.active && msg.endsAt ? Number(msg.endsAt) : null;
+            // FIX: same ISO string parse fix as syncMaintenance above
+            const nextEndsAt = msg.active && msg.endsAt ? new Date(msg.endsAt).getTime() : null;
             setMaintenance({ active: msg.active, endsAt: Number.isFinite(nextEndsAt) ? nextEndsAt : null });
             if (!msg.active) {
               setMaintRemaining(null);

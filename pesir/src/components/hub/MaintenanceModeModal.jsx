@@ -1,15 +1,17 @@
 // pesir/src/components/hub/MaintenanceModeModal.jsx
 // Maintenance mode control panel for AdminLayout HubModal.
-import React, { useMemo, useState } from 'react';
+//
+// PATCH: replaced useMemo-derived `remaining` with a self-contained useEffect
+// countdown.  Previously the timer relied on `maintenance.remaining` prop
+// (which is `maintRemaining` state from AdminLayout) flowing down every second.
+// Any route transition or re-render hiccup in the parent broke that flow and
+// froze the display.  Now the component owns its own setInterval, computing
+// remaining seconds directly from `maintenance.endsAt` (an absolute timestamp).
+// Switching pages, hub tabs, or anything else in the parent no longer affects it.
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Clock3, TimerReset, Wrench } from 'lucide-react';
 
-const toSeconds = (endsAt, fallback = 0) => {
-  if (Number.isFinite(fallback) && fallback > 0) return fallback;
-  const end = Number(endsAt);
-  if (!Number.isFinite(end)) return 0;
-  return Math.max(0, Math.ceil((end - Date.now()) / 1000));
-};
-
+// formatRemaining converts total seconds → MM:SS or HH:MM:SS display string
 const formatRemaining = (seconds) => {
   const total = Math.max(0, Number(seconds) || 0);
   const hh = Math.floor(total / 3600);
@@ -33,10 +35,35 @@ export const MaintenanceModePanel = ({
   const [durationValue, setDurationValue] = useState(1);
   const [durationUnit, setDurationUnit] = useState('minutes');
 
-  const remaining = useMemo(
-    () => toSeconds(maintenance?.endsAt, Number(maintenance?.remaining)),
-    [maintenance?.endsAt, maintenance?.remaining]
-  );
+  // ── Self-contained countdown ──────────────────────────────────────────────
+  // Compute remaining seconds from the absolute endsAt timestamp on every tick.
+  // This makes the timer immune to parent re-render interruptions, route changes,
+  // and hub-tab switching — all of which previously caused the display to freeze.
+  const [remaining, setRemaining] = useState(() => {
+    const end = Number(maintenance?.endsAt);
+    if (!Number.isFinite(end) || end <= 0) return 0;
+    return Math.max(0, Math.ceil((end - Date.now()) / 1000));
+  });
+
+  useEffect(() => {
+    const end = Number(maintenance?.endsAt);
+    const active = !!maintenance?.active;
+
+    // No timer set or maintenance off — reset to 0 and don't start interval
+    if (!active || !Number.isFinite(end) || end <= 0) {
+      setRemaining(0);
+      return;
+    }
+
+    // Tick immediately so display is correct on mount / endsAt change
+    const tick = () => {
+      setRemaining(Math.max(0, Math.ceil((end - Date.now()) / 1000)));
+    };
+    tick();
+
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [maintenance?.active, maintenance?.endsAt]); // stable absolute values — no churn
 
   const hasActiveTimer = isActive && remaining > 0;
   const canSet = isSuperAdmin && isActive;
