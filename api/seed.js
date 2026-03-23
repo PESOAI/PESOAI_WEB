@@ -6,21 +6,24 @@ export default async function seedAdmins() {
   try {
     const check = await pool.query('SELECT COUNT(*) FROM admins');
     if (parseInt(check.rows[0].count) > 0) {
-      console.log('✅ Admins already exist, skipping seed');
+      console.log('✅ Admins already seeded');
       return;
     }
-    const mainAdminHash  = await bcrypt.hash('MainAdmin@2026',  BCRYPT_ROUNDS);
-    const staffAdminHash = await bcrypt.hash('StaffAdmin@2026', BCRYPT_ROUNDS);
+
+    const mainHash  = await bcrypt.hash('MainAdmin@2026',  BCRYPT_ROUNDS);
+    const staffHash = await bcrypt.hash('StaffAdmin@2026', BCRYPT_ROUNDS);
+
     await pool.query(`
       INSERT INTO admins (username, password, role) VALUES
-        ('superadmin',     $1, 'Main Admin'),
-        ('rhenz',          $2, 'Staff Admin'),
-        ('jayson',         $2, 'Staff Admin'),
-        ('mark',           $2, 'Staff Admin'),
-        ('MaxVerstappen',  $2, 'Staff Admin')
-    `, [mainAdminHash, staffAdminHash]);
-    console.log('✅ Admins seeded successfully');
+        ('superadmin',    $1, 'Main Admin'),
+        ('rhenz',         $2, 'Staff Admin'),
+        ('jayson',        $2, 'Staff Admin'),
+        ('mark',          $2, 'Staff Admin'),
+        ('MaxVerstappen', $2, 'Staff Admin')
+    `, [mainHash, staffHash]);
+    console.log('✅ Admin accounts seeded (superadmin + 4 staff)');
 
+    // Default global categories for web analytics
     const catCheck = await pool.query('SELECT COUNT(*) FROM categories');
     if (parseInt(catCheck.rows[0].count) === 0) {
       await pool.query(`

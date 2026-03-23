@@ -24,7 +24,7 @@ import { EmptyState, Card, Dropdown } from '../components/UIAtoms';
 import { useConfirm, ConfirmModal, Toast } from '../components/GlobalConfirmModal';
 import { apiFetch } from '../utils/authClient';
 
-const API = 'http://localhost:5000/api/admin';
+const API = '/api/admin';
 
 // ── MASTER DESIGN TOKENS ────────────────────────────────────
 const T = {

@@ -1,12 +1,10 @@
-// api/routes/auth.js
-// Authentication, profile, admin management, and audit endpoints.
 import express from 'express';
 import { randomUUID } from 'crypto';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import { verifyAdmin } from '../middleware/webAuthMiddleware.js';
 import {
   login, logout, verify, refresh,
-  updateAvatar, updateDisplayName,
-  getMe, createAdmin, getAdmins, deleteAdmin,
+  updateAvatar, updateDisplayName, getMe,
+  createAdmin, getAdmins, deleteAdmin,
   changePassword, getAuditLogs, createAuditLog,
 } from '../controllers/authController.js';
 import {
@@ -18,28 +16,22 @@ const router = express.Router();
 
 router.get('/csrf-token', (_req, res) => {
   const token = randomUUID();
-  res.cookie('csrf_token', token, {
-    httpOnly: false,
-    secure: false,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 1000,
-  });
+  res.cookie('csrf_token', token, { httpOnly:false, secure:false, sameSite:'lax', path:'/', maxAge:3600000 });
   return res.json({ csrfToken: token });
 });
 
-router.post('/login',                 validateLogin,            login);
-router.post('/refresh',                                           refresh);
-router.post('/logout',                                           logout);
-router.get('/verify',                 verifyToken,              verify);
-router.put('/admins/avatar',          verifyToken, validateAvatar,         updateAvatar);
-router.put('/admins/display-name',    verifyToken, validateDisplayName,    updateDisplayName);
-router.put('/admins/change-password', verifyToken, validateChangePassword, changePassword);
-router.get('/admins/me',              verifyToken,              getMe);
-router.post('/admins',                verifyToken, validateCreateAdmin,    createAdmin);
-router.get('/admins',                 verifyToken,              getAdmins);
-router.delete('/admins/:id',          verifyToken, validateDeleteAdmin, deleteAdmin);
-router.get('/audit-logs',             verifyToken,              getAuditLogs);
-router.post('/audit-logs',            verifyToken, validateAuditLog,       createAuditLog);
+router.post('/login',                 validateLogin,                     login);
+router.post('/refresh',                                                   refresh);
+router.post('/logout',                                                   logout);
+router.get('/verify',                 verifyAdmin,                       verify);
+router.put('/admins/avatar',          verifyAdmin, validateAvatar,       updateAvatar);
+router.put('/admins/display-name',    verifyAdmin, validateDisplayName,  updateDisplayName);
+router.put('/admins/change-password', verifyAdmin, validateChangePassword, changePassword);
+router.get('/admins/me',              verifyAdmin,                       getMe);
+router.post('/admins',                verifyAdmin, validateCreateAdmin,  createAdmin);
+router.get('/admins',                 verifyAdmin,                       getAdmins);
+router.delete('/admins/:id',          verifyAdmin, validateDeleteAdmin,  deleteAdmin);
+router.get('/audit-logs',             verifyAdmin,                       getAuditLogs);
+router.post('/audit-logs',            verifyAdmin, validateAuditLog,     createAuditLog);
 
 export default router;

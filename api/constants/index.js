@@ -1,3 +1,4 @@
+// Web admin role constants
 export const ROLES = {
   MAIN_ADMIN:  'Main Admin',
   STAFF_ADMIN: 'Staff Admin',

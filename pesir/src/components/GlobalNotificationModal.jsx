@@ -1,4 +1,5 @@
 // components/GlobalNotificationModal.jsx  –  PESO AI
+import { apiFetch } from '../utils/authClient';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Bell, Megaphone, Clock, Sparkles, Lightbulb,
@@ -6,7 +7,7 @@ import {
   Loader2, Zap,
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api/admin';
+const API = '/api/admin';
 const MAX_CHARS = 200;
 
 const NOTIF_TYPES = [
@@ -103,13 +104,17 @@ const GlobalNotificationModal = ({ open, onClose, maintenance }) => {
     if (!isValid || status === 'loading') return;
     setStatus('loading');
     setErrorMsg('');
+    // Announcement API: POST /api/admin/announcements
+    // payload shape: { title, body, priority }
+    // type.value maps to priority: Announcement→normal, Reminder→normal, New Feature→high, Tip→low
+    const priorityMap = { 'Announcement': 'normal', 'Reminder': 'normal', 'New Feature': 'high', 'Tip & Advice': 'low' };
     const payload = {
-      type:    type.value,
-      message: message.trim(),
-      send_at: sendMode === 'now' ? null : `${scheduleDate}T${scheduleTime}:00`,
+      title:    type.label,
+      body:     message.trim(),
+      priority: priorityMap[type.value] || 'normal',
     };
     try {
-      const res = await fetch(`${API}/notifications/send`, {
+      const res = await apiFetch(`${API}/announcements`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),
